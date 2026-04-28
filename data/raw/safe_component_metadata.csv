@@ -1,0 +1,7 @@
+component,label,question,item,answer,direction
+access_finance_main_problem,Access to finance is the most pressing problem,Q0,ZZZZ,P3,higher_more_pain
+bank_loan_rejected,Bank loan application rejected,Q7B,FBLN,S4,higher_more_pain
+bank_loan_cost_too_high,Bank loan offer refused because cost was too high,Q7B,FBLN,S3,higher_more_pain
+bank_loan_limited_amount,Bank loan only granted for a limited amount,Q7B,FBLN,S6,higher_more_pain
+bank_willingness_deteriorated,Banks' willingness to provide credit deteriorated,Q11,11F,N3,higher_more_pain
+interest_rates_increased,Interest rates increased,Q10,10A,N1,higher_more_pain

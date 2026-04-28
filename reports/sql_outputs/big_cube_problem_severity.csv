@@ -1,0 +1,43 @@
+problem,firm_size_label,avg_severity,cells
+Access to finance,Small,4.605,84
+Access to finance,Medium,4.449,84
+Access to finance,All,4.409,84
+Access to finance,SME,4.379,252
+Access to finance,Micro,4.362,84
+Access to finance,Large,4.254,84
+Competition,Large,6.365,84
+Competition,Medium,6.257,84
+Competition,All,6.05,84
+Competition,Small,5.948,84
+Competition,SME,5.767,252
+Competition,Micro,5.56,84
+Finding customers,Medium,6.493,84
+Finding customers,Large,6.423,84
+Finding customers,All,6.405,84
+Finding customers,Small,6.399,84
+Finding customers,Micro,6.207,84
+Finding customers,SME,5.999,252
+Other,Micro,7.845,84
+Other,SME,7.802,252
+Other,Small,7.736,84
+Other,All,7.721,84
+Other,Medium,7.647,84
+Other,Large,7.491,84
+Production/labour costs,Medium,6.836,84
+Production/labour costs,Large,6.802,84
+Production/labour costs,Small,6.796,84
+Production/labour costs,All,6.67,84
+Production/labour costs,SME,6.319,252
+Production/labour costs,Micro,6.23,84
+Regulation,Large,5.873,84
+Regulation,Medium,5.765,84
+Regulation,Small,5.73,84
+Regulation,All,5.706,84
+Regulation,SME,5.563,252
+Regulation,Micro,5.447,84
+Skilled staff,Medium,6.85,84
+Skilled staff,Small,6.783,84
+Skilled staff,Large,6.681,84
+Skilled staff,All,6.524,84
+Skilled staff,SME,6.435,252
+Skilled staff,Micro,5.932,84

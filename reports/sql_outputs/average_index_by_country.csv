@@ -1,0 +1,13 @@
+country_name,REF_AREA,avg_SME_FPI_z,avg_hidden_gap,periods
+Greece,GR,1.469,1.42,33
+Spain,ES,0.567,0.518,33
+Netherlands,NL,0.429,0.38,33
+Ireland,IE,0.169,0.121,33
+Italy,IT,0.108,0.059,33
+Portugal,PT,0.016,-0.032,33
+Slovakia,SK,-0.278,0.034,23
+France,FR,-0.432,-0.48,33
+Belgium,BE,-0.446,-0.495,33
+Finland,FI,-0.451,-0.499,33
+Austria,AT,-0.605,-0.653,33
+Germany,DE,-0.631,-0.679,33

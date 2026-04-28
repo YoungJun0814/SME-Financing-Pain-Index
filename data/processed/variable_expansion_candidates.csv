@@ -1,0 +1,7 @@
+layer,variable,status,use
+Core borrower-side SAFE,Current six SME_FPI components,implemented,Baseline and alternative SME_FPI construction
+Core borrower-side SAFE,Availability/collateral/other cost variables,candidate,Future index expansion if exact SAFE series are added
+Big SAFE Q0B cube,Access-to-finance severity and severe-response shares,implemented,Validation target and Big Data diagnostic layer
+Market benchmark,ECB New CISS,implemented,Common euro-area market-stress benchmark
+Macro context,"GDP growth, unemployment, inflation, private credit",implemented,External macro context and future stress validation
+Lender-side validation,ECB Bank Lending Survey credit standards,not implemented,Recommended next validation extension

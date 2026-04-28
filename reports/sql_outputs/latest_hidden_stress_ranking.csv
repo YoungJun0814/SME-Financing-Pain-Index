@@ -1,0 +1,13 @@
+country_name,REF_AREA,TIME_PERIOD,SME_FPI_z,CISS_z,Hidden_SME_Stress,stress_gap_rank
+Greece,GR,2025-S1,0.35,-0.73,1.079,1
+Finland,FI,2025-S1,0.241,-0.73,0.97,2
+Ireland,IE,2025-S1,0.048,-0.73,0.778,3
+Netherlands,NL,2025-S1,-0.341,-0.73,0.389,4
+Slovakia,SK,2025-S1,-0.492,-0.73,0.238,5
+Spain,ES,2025-S1,-0.686,-0.73,0.044,6
+France,FR,2025-S1,-0.718,-0.73,0.011,7
+Italy,IT,2025-S1,-0.791,-0.73,-0.061,8
+Germany,DE,2025-S1,-0.8,-0.73,-0.071,9
+Portugal,PT,2025-S1,-0.859,-0.73,-0.13,10
+Austria,AT,2025-S1,-0.914,-0.73,-0.184,11
+Belgium,BE,2025-S1,-0.918,-0.73,-0.188,12

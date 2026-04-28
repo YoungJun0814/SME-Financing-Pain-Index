@@ -1,0 +1,260 @@
+---
+title: "European SME Financing Pain Index"
+subtitle: "A Borrower-Side Measure of Hidden Credit Stress"
+author: "Jun"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    theme: readable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+base_dir <- ".."
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(knitr)
+```
+
+## Research Question
+
+Can a borrower-side European SME Financing Pain Index reveal hidden credit stress not captured by market-side stress indicators such as the ECB CISS?
+
+## Signature Visualization
+
+```{r signature-visual, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "00_signature_sme_fpi_story.png"))
+```
+
+Design rationale: this composite figure is the main visual summary of the project. It combines the time-series comparison, the country-period stress matrix, and the latest hidden stress gap. This makes it suitable for the first page of the report or the first analytical slide.
+
+## Conceptual Motivation
+
+The ECB CISS measures systemic stress in financial markets. Plain-language version: CISS is like a financial-market stress thermometer for the euro area; higher values mean financial markets are under more pressure. This project asks a complementary question: whether small and medium-sized enterprises are experiencing financing pain from the borrower's perspective.
+
+The index is not designed to replace official systemic stress indicators. It is designed to measure a different object:
+
+```text
+market-side stress != borrower-side financing pain
+```
+
+## Data
+
+The project uses:
+
+- ECB SAFE survey data for SME financing conditions.
+- ECB New CISS as the official market-side/systemic stress benchmark.
+
+The main panel is country by half-year. The raw SAFE extraction also keeps firm-size breakdowns for the visualization portfolio.
+
+To strengthen the Big Data Visualization component, the project also includes a larger SAFE Q0B pressingness cube. This cube is not the main index table; it is the high-dimensional survey layer from which problem-severity diagnostics are produced.
+
+```{r load-data}
+panel <- read_csv(file.path(base_dir, "data", "processed", "sme_fpi_panel.csv"))
+loadings <- read_csv(file.path(base_dir, "data", "processed", "pca_loadings.csv"))
+profiles <- read_csv(file.path(base_dir, "data", "processed", "sme_fpi_cluster_profiles.csv"))
+review <- read_csv(file.path(base_dir, "data", "processed", "build_review_summary.csv"))
+big_review <- read_csv(file.path(base_dir, "data", "processed", "big_cube_review_summary.csv"))
+
+kable(review)
+```
+
+```{r big-cube-review}
+kable(big_review, digits = 2)
+```
+
+## Index Equation
+
+For country `c` and period `t`, each component is standardized:
+
+```text
+z(x_i,c,t) = (x_i,c,t - mean(x_i)) / sd(x_i)
+```
+
+The equal-weight index is:
+
+```text
+I(c,t) = set of available financing-pain components for country c and period t
+
+SME_FPI_raw(c,t) = mean_i in I(c,t) z(x_i,c,t), requiring at least 4 components
+SME_FPI(c,t)     = z(SME_FPI_raw(c,t))
+```
+
+In fully observed rows, this is the mean of all six selected borrower-side components:
+access to finance as the main problem, bank loan rejection, bank loan cost too high,
+limited bank loan amount, deteriorated bank willingness, and increased interest rates.
+When a component is missing, the implementation averages the available standardized
+components only if at least four components are present.
+
+The hidden stress gap is:
+
+```text
+Hidden_SME_Stress(c,t) = z(SME_FPI(c,t)) - z(CISS(t))
+```
+
+Positive values mean borrower-side SME pain is high relative to its own history while the common euro-area CISS market-stress benchmark is lower relative to its own history. This is a relative benchmark gap, not a country-specific financial-market stress measure.
+
+## Descriptive Summary
+
+```{r descriptive-summary}
+panel %>%
+  summarise(
+    countries = n_distinct(REF_AREA),
+    periods = n_distinct(TIME_PERIOD),
+    observations = n(),
+    mean_index = mean(SME_FPI_equal_z, na.rm = TRUE),
+    sd_index = sd(SME_FPI_equal_z, na.rm = TRUE),
+    mean_hidden_gap = mean(Hidden_SME_Stress, na.rm = TRUE)
+  ) %>%
+  kable(digits = 3)
+```
+
+## PCA Review
+
+The PCA version is used as a multidimensional robustness check. PC1 is oriented so higher values mean more financing pain.
+
+```{r pca-loadings}
+loadings %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  kable()
+```
+
+The technical review showed that all PC1 loadings are positive after orientation, which is theoretically consistent with the index definition: all selected components are coded so higher values mean more pain.
+
+## Visualization 1: Borrower-Side vs Market-Side Stress
+
+```{r fig1, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "01_sme_fpi_vs_ciss_timeseries.png"))
+```
+
+Design rationale: a line chart is appropriate because the question is about change over time. The two lines compare borrower-side and market-side stress without implying that CISS is an input into the index.
+
+## Visualization 2: Country-Period Heatmap
+
+```{r fig2, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "02_country_period_heatmap.png"))
+```
+
+Design rationale: the heatmap is suitable because the data form a country by time matrix. Sorting countries by average stress reduces visual search cost.
+
+## Visualization 3: Hidden Stress Gap
+
+```{r fig3, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "03_hidden_sme_stress_gap_latest.png"))
+```
+
+Design rationale: a diverging bar chart emphasizes whether each country is above or below the common euro-area market-side benchmark.
+
+## Visualization 4: PCA Loadings
+
+```{r fig4, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "04_pca_loadings.png"))
+```
+
+Design rationale: PCA can be hard to interpret. A loading plot makes the mathematical structure transparent.
+
+## Correlation Heatmap
+
+```{r corr-heatmap, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "04b_numeric_correlation_heatmap.png"))
+```
+
+Design rationale: the correlation heatmap checks whether the selected numeric financing-stress variables move together. It also helps detect whether the index is dominated by one variable or represents a broader shared stress pattern.
+
+## Visualization 5: Financing Regimes
+
+```{r fig5, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "05_pca_cluster_regimes.png"))
+```
+
+Design rationale: the PCA scatter plot reduces six dimensions to two visible axes and supports cluster interpretation.
+
+## Visualization 6: Firm-Size Breakdown
+
+```{r fig6, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "06_firm_size_component_heatmap.png"))
+```
+
+Design rationale: this heatmap shows that the SAFE data are not only a simple country-time table. The selected components include firm-size breakdowns. Sector breakdown was checked but was not available for these exact components.
+
+## General-Audience Redesign
+
+```{r fig8, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "08_general_audience_redesign.png"))
+```
+
+Design rationale: the left panel shows the original chart problem: too many lines compete for attention. The redesigned panel guides the reader with an aggregate trend, a few highlighted countries, direct labels, and annotated stress periods.
+
+## Big Data Cube Diagnostics
+
+```{r fig9, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "09_big_cube_problem_severity_by_size.png"))
+```
+
+Design rationale: this chart uses the larger SAFE Q0B cube rather than the compact index panel. It shows how problem severity differs by firm size and problem category. The severity score is a pragmatic weighted mean of ordinal 1-10 response levels, so it is used descriptively rather than as a precise cardinal measurement.
+
+```{r fig10, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "10_access_finance_severity_marginal_breakdowns.png"))
+```
+
+Design rationale: SAFE provides firm-size and sector breakdowns for this question, but not necessarily as a complete firm-size by sector cross-product. The chart therefore presents honest marginal breakdowns instead of fabricating a two-way matrix.
+
+```{r fig11, echo=FALSE, out.width="100%"}
+knitr::include_graphics(file.path(base_dir, "figures", "11_access_finance_severity_big_cube_trend.png"))
+```
+
+Design rationale: this line chart uses the larger cube to show the trend in access-to-finance problem severity across countries.
+
+## SQL Component
+
+The processed data were also exported to a local SQLite database:
+
+```text
+data/processed/sme_fpi.sqlite
+```
+
+Example SQL outputs are stored in:
+
+```text
+reports/sql_outputs/
+```
+
+```{r sql-output-preview}
+latest_sql <- read_csv(file.path(base_dir, "reports", "sql_outputs", "latest_hidden_stress_ranking.csv"))
+latest_sql %>%
+  head(8) %>%
+  kable(digits = 3)
+```
+
+## Regime Profiles
+
+```{r cluster-profiles}
+profiles %>%
+  mutate(across(where(is.numeric), round, 3)) %>%
+  kable()
+```
+
+## Technical and Theoretical Checks
+
+1. All selected components are coded so higher values mean greater financing pain.
+2. Variables are standardized before aggregation.
+3. CISS is not included in the SME_FPI; it is only used as a benchmark.
+4. PCA PC1 is sign-oriented to correlate positively with the equal-weight index.
+5. The equal-weight index averages available standardized components and requires at least four available components.
+6. The hidden stress gap compares standardized SME_FPI with the standardized common euro-area CISS benchmark.
+7. SAFE Q0B severity scores treat ordinal 1-10 answers as a descriptive scale rather than exact cardinal units.
+8. Sector breakdown was not forced where ECB SAFE provides only marginal breakdowns rather than full cross-tabs.
+9. SQL outputs were generated from a local SQLite database.
+
+## Conclusion
+
+The SME_FPI provides a borrower-side view of financing stress. Its main value is not replacing the ECB CISS, but identifying moments when small firms experience credit access pressure that may not be visible in market-side stress indicators.
+
+## Source Links
+
+- ECB SAFE: https://data.ecb.europa.eu/methodology/survey-access-finance-enterprises-safe
+- ECB Data API: https://data.ecb.europa.eu/help/api/data
+- ECB CISS: https://data.ecb.europa.eu/data/datasets/ciss/data-information
