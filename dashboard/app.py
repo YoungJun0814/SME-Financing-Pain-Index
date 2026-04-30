@@ -30,6 +30,10 @@ FORECAST_SUMMARY_PATH = DATA_DIR / "forecasting_layer_summary.csv"
 SOURCE_CATALOG_PATH = DATA_DIR / "dashboard_source_catalog.csv"
 LATEST_FORECAST_PREDICTIONS_PATH = DATA_DIR / "latest_forecast_model_predictions.csv"
 FORECAST_DECISION_BOARD_PATH = DATA_DIR / "forecast_decision_board.csv"
+FORECAST_ALL_PREDICTIONS_PATH = DATA_DIR / "forecast_model_predictions_all_origins.csv"
+FORECAST_DECISION_HISTORY_PATH = DATA_DIR / "decision_board_all_origins.csv"
+FORECAST_COUNTRY_ERROR_PATH = DATA_DIR / "forecasting_country_error.csv"
+RISK_TIER_VALIDATION_PATH = DATA_DIR / "risk_tier_validation.csv"
 
 ISO3 = {
     "AT": "AUT",
@@ -208,6 +212,10 @@ def load_data():
     source_catalog = load_optional_csv(SOURCE_CATALOG_PATH, pd.DataFrame())
     latest_forecast_predictions = load_optional_csv(LATEST_FORECAST_PREDICTIONS_PATH, pd.DataFrame())
     forecast_decision_board = load_optional_csv(FORECAST_DECISION_BOARD_PATH, pd.DataFrame())
+    forecast_all_predictions = load_optional_csv(FORECAST_ALL_PREDICTIONS_PATH, pd.DataFrame())
+    forecast_decision_history = load_optional_csv(FORECAST_DECISION_HISTORY_PATH, pd.DataFrame())
+    forecast_country_error = load_optional_csv(FORECAST_COUNTRY_ERROR_PATH, pd.DataFrame())
+    risk_tier_validation = load_optional_csv(RISK_TIER_VALIDATION_PATH, pd.DataFrame())
 
     panel["iso3"] = panel["REF_AREA"].map(ISO3)
     panel["coverage_label"] = panel["components_available"].astype("Int64").astype(str) + " / 6 components"
@@ -231,6 +239,9 @@ def load_data():
             how="left",
         )
     forecast_panel = forecast_panel.sort_values(["period_sort", "country_name"]).reset_index(drop=True)
+    for frame in [forecast_all_predictions, forecast_decision_history, forecast_decision_board]:
+        if not frame.empty and "TIME_PERIOD" in frame.columns and "period_index" not in frame.columns:
+            frame["period_index"] = frame["TIME_PERIOD"].map(period_to_index)
     severity = severity.sort_values(["TIME_PERIOD", "country_name"]).reset_index(drop=True)
     severity["period_index"] = severity["TIME_PERIOD"].map(period_to_index)
 
@@ -248,6 +259,10 @@ def load_data():
         source_catalog,
         latest_forecast_predictions,
         forecast_decision_board,
+        forecast_all_predictions,
+        forecast_decision_history,
+        forecast_country_error,
+        risk_tier_validation,
     )
 
 
@@ -265,6 +280,10 @@ def load_data():
     SOURCE_CATALOG,
     LATEST_FORECAST_PREDICTIONS,
     FORECAST_DECISION_BOARD,
+    FORECAST_ALL_PREDICTIONS,
+    FORECAST_DECISION_HISTORY,
+    FORECAST_COUNTRY_ERROR,
+    RISK_TIER_VALIDATION,
 ) = load_data()
 COUNTRIES = PANEL[["REF_AREA", "country_name"]].drop_duplicates().sort_values("country_name")
 COUNTRY_OPTIONS = [
@@ -551,7 +570,7 @@ def forecasting_summary_cards():
     if FORECAST_SUMMARY.empty:
         return [
             metric_card("Forecast feature panel", "not built", "run scripts/11_build_forecasting_layer.py"),
-            metric_card("External predictors", "pending", "BLS/MIR optional files not summarized yet"),
+            metric_card("External predictors", "pending", "BLS/MIR/Eurostat optional files not summarized yet"),
             metric_card("Backtest", "pending", "rolling-origin evaluation not available"),
         ]
     row = FORECAST_SUMMARY.iloc[0]
@@ -1781,7 +1800,7 @@ def make_forecast_figure(period_range, countries, metric_col):
         fig,
         chart_title(
             "Which countries may face rising SME financing pressure next?",
-            f"Expanded SAFE + macro + BLS/MIR model suite from {latest['TIME_PERIOD'].iloc[0]} to {next_period}; baselines included; {mae_label}",
+            f"Expanded SAFE + macro + BLS/MIR/Eurostat model suite from {latest['TIME_PERIOD'].iloc[0]} to {next_period}; baselines included; {mae_label}",
         ),
         height=560,
     )
@@ -1942,6 +1961,236 @@ def decision_summary_cards(board):
         metric_card("Forecast rising", f"{len(rising)} countries", "best recent ML model delta is positive"),
         metric_card("High-confidence reads", f"{high_conf}", "tight ML range and strong agreement"),
     ]
+
+
+def decision_narrative(board):
+    if board.empty:
+        return html.Div(
+            className="decision-narrative",
+            children=[
+                html.Span("Latest read", className="panel-kicker"),
+                html.P("No decision-board read is available for this period. Move the period slider later or rebuild the forecasting layer."),
+            ],
+        )
+    counts = board["risk_tier"].value_counts()
+    alert_count = int(counts.get("Alert", 0))
+    watch_count = int(counts.get("Watch", 0))
+    monitor_count = int(counts.get("Monitor", 0))
+    rising_count = int((board["forecast_direction"] == "Rising").sum())
+    high_conf = int((board["confidence"] == "High").sum())
+    top_names = ", ".join(board.head(3)["country_name"].astype(str).tolist())
+    model_label = str(board["best_model_label"].dropna().iloc[0]) if board["best_model_label"].notna().any() else "best recent ML model"
+    origin = str(board["TIME_PERIOD"].iloc[0])
+    target = (
+        str(board["forecast_target_period"].dropna().iloc[0])
+        if "forecast_target_period" in board.columns and board["forecast_target_period"].notna().any()
+        else "the next half-year"
+    )
+    return html.Div(
+        className="decision-narrative",
+        children=[
+            html.Span("Latest read", className="panel-kicker"),
+            html.P(
+                f"As of {origin}, the selected view has {alert_count} Alert, {watch_count} Watch, "
+                f"and {monitor_count} Monitor countries. {model_label} projects {rising_count} countries "
+                f"with rising H+1 pressure toward {target}; {high_conf} country reads have high model-agreement confidence. "
+                f"Start with {top_names}, then use the driver heatmap and country cards to explain whether the signal comes from "
+                "current borrower pain, a hidden SME-CISS gap, or forward model momentum."
+            ),
+        ],
+    )
+
+
+def make_risk_history_figure(period_range, countries):
+    if FORECAST_DECISION_HISTORY.empty:
+        return empty_figure("Historical decision-board backtest is not available. Rebuild the forecasting layer.")
+    countries = selected_or_default(countries)
+    history = FORECAST_DECISION_HISTORY.copy()
+    if "period_index" not in history.columns:
+        period_lookup = {period: index for index, period in enumerate(PERIODS)}
+        history["period_index"] = history["TIME_PERIOD"].map(period_lookup)
+    history = history[
+        (history["period_index"] >= period_range[0])
+        & (history["period_index"] <= period_range[1])
+        & (history["REF_AREA"].isin(countries))
+    ].copy()
+    if history.empty:
+        return empty_figure("No historical tier observations are available for this selection.")
+
+    tier_score = {"Normal": 0, "Monitor": 1, "Watch": 2, "Alert": 3}
+    tier_sort = {"Alert": 0, "Watch": 1, "Monitor": 2, "Normal": 3}
+    history["tier_score"] = history["risk_tier"].map(tier_score)
+    latest = history.sort_values("period_index").groupby("country_name", as_index=False).tail(1)
+    country_order = (
+        latest.assign(_tier_order=latest["risk_tier"].map(tier_sort))
+        .sort_values(["_tier_order", "risk_score", "country_name"], ascending=[True, False, True])["country_name"]
+        .tolist()
+    )
+    periods = [period for period in PERIODS[period_range[0] : period_range[1] + 1] if period in set(history["TIME_PERIOD"])]
+    matrix = (
+        history.pivot_table(index="country_name", columns="TIME_PERIOD", values="tier_score", aggfunc="max")
+        .reindex(index=country_order, columns=periods)
+    )
+    text = (
+        history.pivot_table(index="country_name", columns="TIME_PERIOD", values="risk_tier", aggfunc="first")
+        .reindex(index=country_order, columns=periods)
+    )
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=matrix.to_numpy(dtype=float),
+            x=matrix.columns,
+            y=matrix.index,
+            text=text.fillna("").to_numpy(),
+            zmin=0,
+            zmax=3,
+            colorscale=[
+                [0.00, "#8b98a5"],
+                [0.24, "#8b98a5"],
+                [0.25, "#2f6f9f"],
+                [0.49, "#2f6f9f"],
+                [0.50, "#d19a2e"],
+                [0.74, "#d19a2e"],
+                [0.75, "#a4312e"],
+                [1.00, "#a4312e"],
+            ],
+            colorbar={"title": "Tier", "tickvals": [0, 1, 2, 3], "ticktext": ["Normal", "Monitor", "Watch", "Alert"]},
+            hovertemplate="<b>%{y}</b><br>%{x}<br>Tier: %{text}<extra></extra>",
+        )
+    )
+    fig = polish(
+        fig,
+        chart_title(
+            "Did the decision rule behave consistently through time?",
+            "Historical Alert/Watch/Monitor/Normal assignments from rolling-origin forecast backtests",
+        ),
+        height=470,
+        x_title="Forecast origin",
+        y_title="Country",
+        showlegend=False,
+    )
+    fig.update_layout(margin={"l": 118, "r": 34, "t": 132, "b": 92})
+    return fig
+
+
+def make_tier_validation_figure():
+    if RISK_TIER_VALIDATION.empty:
+        return empty_figure("Risk-tier validation is not available. Rebuild the forecasting layer.")
+    validation = RISK_TIER_VALIDATION.copy()
+    order = ["Alert", "Watch", "Monitor", "Normal"]
+    validation["risk_tier"] = pd.Categorical(validation["risk_tier"], categories=order, ordered=True)
+    validation = validation.sort_values("risk_tier")
+    colors = [RISK_TIER_COLORS.get(str(tier), "#8b98a5") for tier in validation["risk_tier"].astype(str)]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=validation["risk_tier"].astype(str),
+            y=validation["pressure_rose_share"] * 100,
+            marker={"color": colors, "line": {"color": "#ffffff", "width": 1}},
+            name="Pressure rose",
+            customdata=np.column_stack(
+                [
+                    validation["n_country_origins"],
+                    validation["mean_actual_delta"],
+                    validation["mean_forecast_abs_error"],
+                    validation["direction_hit_share"] * 100,
+                ]
+            ),
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Pressure rose next period: %{y:.0f}%<br>"
+                "Country-origin reads: %{customdata[0]:.0f}<br>"
+                "Mean actual delta: %{customdata[1]:.2f}<br>"
+                "Mean forecast abs. error: %{customdata[2]:.2f}<br>"
+                "Directional hit rate: %{customdata[3]:.0f}%<extra></extra>"
+            ),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=validation["risk_tier"].astype(str),
+            y=validation["direction_hit_share"] * 100,
+            mode="lines+markers",
+            name="Directional hit",
+            yaxis="y2",
+            line={"color": "#244c68", "width": 2},
+            marker={"size": 8, "color": "#ffffff", "line": {"color": "#244c68", "width": 2}},
+            hovertemplate="<b>%{x}</b><br>Directional hit rate: %{y:.0f}%<extra></extra>",
+        )
+    )
+    fig = polish(
+        fig,
+        chart_title(
+            "How should the risk tiers be trusted?",
+            "Historical validation by tier; bars show next-period pressure-rise share, line shows directional hit rate",
+        ),
+        height=470,
+        y_title="Pressure rose next period (%)",
+        x_title="Decision tier",
+    )
+    fig.update_layout(
+        yaxis2={
+            "title": "Directional hit (%)",
+            "overlaying": "y",
+            "side": "right",
+            "range": [0, 100],
+            "showgrid": False,
+        },
+        yaxis={"range": [0, 100]},
+        margin={"l": 62, "r": 72, "t": 132, "b": 88},
+    )
+    return fig
+
+
+def make_model_rank_heatmap():
+    if FORECAST_EVALUATION.empty:
+        return empty_figure("Model leaderboard history is unavailable. Rebuild forecasting_model_evaluation.csv.")
+    evaluation = FORECAST_EVALUATION.copy()
+    required = {"origin_period", "model_label", "mae"}
+    if not required.issubset(evaluation.columns):
+        return empty_figure("Model evaluation file is missing rank fields.")
+    evaluation["rank"] = evaluation.groupby("origin_period_sort")["mae"].rank(method="min", ascending=True)
+    model_order = (
+        evaluation.groupby("model_label", as_index=False)["mae"]
+        .mean()
+        .sort_values("mae")["model_label"]
+        .tolist()
+    )
+    period_order = evaluation.sort_values("origin_period_sort")["origin_period"].drop_duplicates().tolist()
+    rank_matrix = (
+        evaluation.pivot_table(index="model_label", columns="origin_period", values="rank", aggfunc="min")
+        .reindex(index=model_order, columns=period_order)
+    )
+    mae_matrix = (
+        evaluation.pivot_table(index="model_label", columns="origin_period", values="mae", aggfunc="mean")
+        .reindex(index=model_order, columns=period_order)
+    )
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=rank_matrix.to_numpy(dtype=float),
+            x=rank_matrix.columns,
+            y=rank_matrix.index,
+            text=np.round(mae_matrix.to_numpy(dtype=float), 3),
+            zmin=1,
+            zmax=max(1, len(model_order)),
+            reversescale=True,
+            colorscale="Blues",
+            colorbar={"title": "Rank", "tickmode": "linear", "dtick": 1},
+            hovertemplate="<b>%{y}</b><br>Origin: %{x}<br>MAE rank: %{z:.0f}<br>MAE: %{text}<extra></extra>",
+        )
+    )
+    fig = polish(
+        fig,
+        chart_title(
+            "Which forecasting models are stable, not just lucky?",
+            "Rolling-origin MAE rank by model; darker cells indicate stronger relative performance",
+        ),
+        height=480,
+        x_title="Forecast origin",
+        y_title="Model",
+        showlegend=False,
+    )
+    fig.update_layout(margin={"l": 142, "r": 34, "t": 132, "b": 92})
+    return fig
 
 
 def decision_table(board):
@@ -2140,8 +2389,26 @@ def make_driver_heatmap(board):
 def diagnosis_cards(board):
     if board.empty:
         return html.Div(className="source-table-empty", children="No country diagnosis is available for this period.")
+    country_error = pd.DataFrame()
+    if not FORECAST_COUNTRY_ERROR.empty:
+        best_key = best_forecast_model_key()
+        country_error = FORECAST_COUNTRY_ERROR[FORECAST_COUNTRY_ERROR["model_key"] == best_key].copy()
+        if country_error.empty:
+            country_error = (
+                FORECAST_COUNTRY_ERROR[FORECAST_COUNTRY_ERROR["model_family"] == "machine learning"]
+                .groupby(["REF_AREA", "country_name"], as_index=False)
+                .agg(
+                    mean_abs_error=("mean_abs_error", "mean"),
+                    direction_hit_share=("direction_hit_share", "mean"),
+                    n_origins=("n_origins", "max"),
+                )
+            )
+    error_lookup = country_error.set_index("REF_AREA").to_dict("index") if not country_error.empty else {}
     cards = []
     for row in board.head(6).itertuples():
+        error_info = error_lookup.get(str(row.REF_AREA), {})
+        hist_error = error_info.get("mean_abs_error", np.nan)
+        hit_share = error_info.get("direction_hit_share", np.nan)
         cards.append(
             html.Div(
                 className=f"diagnosis-card diagnosis-card-{str(row.risk_tier).lower()}",
@@ -2160,10 +2427,21 @@ def diagnosis_cards(board):
                             html.Div(children=[html.Span("Gap"), html.Strong(format_number(row.gap_value))]),
                             html.Div(children=[html.Span("H+1"), html.Strong(format_number(row.best_model_forecast))]),
                             html.Div(children=[html.Span("ML rising"), html.Strong(f"{format_number(row.ml_model_agreement_rising * 100, 0)}%")]),
+                            html.Div(
+                                children=[
+                                    html.Span("Hist error"),
+                                    html.Strong(format_number(hist_error) if pd.notna(hist_error) else "n/a"),
+                                ]
+                            ),
                         ],
                     ),
                     html.P(str(row.primary_drivers)),
-                    html.Small(str(row.recommended_read)),
+                    html.Small(
+                        f"{row.recommended_read} Historical direction hit: "
+                        f"{format_number(hit_share * 100, 0)}%."
+                        if pd.notna(hit_share)
+                        else str(row.recommended_read)
+                    ),
                 ],
             )
         )
@@ -2689,7 +2967,7 @@ app.layout = html.Div(
                                 html.Span("PCA + clusters"),
                                 html.Span("CISS benchmark"),
                                 html.Span("Macro + micro predictors"),
-                                html.Span("BLS/MIR forecast layer"),
+                                html.Span("BLS/MIR/Eurostat forecast layer"),
                             ],
                         ),
                     ],
@@ -2910,6 +3188,7 @@ app.layout = html.Div(
                                             ],
                                         ),
                                         html.Div(id="decision-summary-cards", className="metric-grid decision-metric-grid"),
+                                        html.Div(id="decision-narrative-container"),
                                         html.Div(
                                             className="decision-logic-panel",
                                             children=[
@@ -2957,6 +3236,33 @@ app.layout = html.Div(
                                                             "The dumbbell compares current SME-FPI with the best recent ML H+1 forecast, while the error bar shows disagreement across ML models.",
                                                             "This keeps uncertainty visible instead of presenting the forecast as a single deterministic value.",
                                                             "A tight range with high directional agreement is more credible than a lone point estimate.",
+                                                        ),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                        html.Div(
+                                            className="two-col decision-validation-grid",
+                                            children=[
+                                                html.Div(
+                                                    children=[
+                                                        dcc.Graph(id="risk-history-figure", className="chart"),
+                                                        explanation(
+                                                            "Validation note",
+                                                            "This heatmap replays the Decision Board through historical forecast origins.",
+                                                            "It shows whether countries repeatedly appeared as Alert, Watch, or Monitor instead of only reporting the latest status.",
+                                                            "Persistent warm cells are more meaningful than one isolated warning cell.",
+                                                        ),
+                                                    ],
+                                                ),
+                                                html.Div(
+                                                    children=[
+                                                        dcc.Graph(id="tier-validation-figure", className="chart"),
+                                                        explanation(
+                                                            "Validation note",
+                                                            "The tier validation chart compares diagnostic tiers with realized next-period movement.",
+                                                            "This avoids treating the risk tier as a black box: a good monitoring tier should separate high-pressure states while making forecast uncertainty visible.",
+                                                            "If a high tier often eases next period, interpret it as a stress-level warning rather than a guaranteed acceleration signal.",
                                                         ),
                                                     ],
                                                 ),
@@ -3075,8 +3381,8 @@ app.layout = html.Div(
                                                         pipeline_step(
                                                             "04",
                                                             "Early warning",
-                                                            "BLS + MIR",
-                                                            "Bank lending survey and loan-rate data feed the forecast layer.",
+                                                            "BLS + MIR + Eurostat",
+                                                            "Bank lending survey, loan-rate, and business-demography data feed the forecast layer.",
                                                         ),
                                                         pipeline_step(
                                                             "05",
@@ -3375,6 +3681,13 @@ $$
                                             "The left panel forecasts next half-year SME-FPI from the selected period using the best recent ML model. The right panel compares Elastic Net, Ridge, Random Forest, Gradient Boosting, and five simple baselines.",
                                             "A country-level dumbbell plus model leaderboard is clearer than a dense projection because the data are a small country-period panel.",
                                             "Use the forecast to flag countries for attention, then use the historical and component charts to explain why.",
+                                        ),
+                                        dcc.Graph(id="model-rank-figure", className="chart"),
+                                        explanation(
+                                            "Model stability note",
+                                            "The rank heatmap checks whether a model performs consistently across rolling-origin windows.",
+                                            "This matters because the best recent model should not be trusted only because it won one period by chance.",
+                                            "Stable regularized models are usually preferable in this small country-period panel unless a nonlinear model repeatedly beats the simple baselines.",
                                         ),
                                     ],
                                 ),
@@ -3852,15 +4165,19 @@ def set_country_selection(_select_all_clicks, _clear_all_clicks):
 @app.callback(
     Output("kpi-row", "children"),
     Output("decision-summary-cards", "children"),
+    Output("decision-narrative-container", "children"),
     Output("decision-table-container", "children"),
     Output("decision-scatter-figure", "figure"),
     Output("agreement-figure", "figure"),
+    Output("risk-history-figure", "figure"),
+    Output("tier-validation-figure", "figure"),
     Output("driver-heatmap-figure", "figure"),
     Output("diagnosis-card-board", "children"),
     Output("map-figure", "figure"),
     Output("time-series-figure", "figure"),
     Output("robustness-figure", "figure"),
     Output("forecast-figure", "figure"),
+    Output("model-rank-figure", "figure"),
     Output("animated-stress-figure", "figure"),
     Output("heatmap-figure", "figure"),
     Output("component-heatmap-figure", "figure"),
@@ -3885,15 +4202,19 @@ def update_dashboard(countries, metric_col, period_range, pca_3d_z, problem, fir
     return (
         kpi_cards(panel_range),
         decision_summary_cards(decision_board),
+        decision_narrative(decision_board),
         decision_table(decision_board),
         make_decision_scatter(decision_board),
         make_agreement_figure(decision_board),
+        make_risk_history_figure(period_range, countries),
+        make_tier_validation_figure(),
         make_driver_heatmap(decision_board),
         diagnosis_cards(decision_board),
         make_map(panel_range, metric_col),
         make_time_series(panel_range, countries, metric_col),
         make_robustness(panel_range, countries),
         make_forecast_figure(period_range, countries, metric_col),
+        make_model_rank_heatmap(),
         make_animated_stress_motion(panel_range, countries, metric_col),
         make_heatmap(panel_range, metric_col),
         make_component_heatmap(panel_range, countries),

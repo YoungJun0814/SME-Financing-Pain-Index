@@ -2,12 +2,30 @@
   box-sizing: border-box;
 }
 
+:root {
+  --ink-900: #13202b;
+  --ink-700: #33404c;
+  --ink-500: #53616d;
+  --blue-700: #244c68;
+  --blue-500: #2f6f9f;
+  --amber-500: #d19a2e;
+  --red-600: #b23a35;
+  --violet-500: #8a63a6;
+  --glass-bg: rgba(255, 255, 255, 0.68);
+  --glass-bg-strong: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.72);
+  --glass-line: rgba(184, 200, 213, 0.58);
+  --glass-filter: blur(22px) saturate(1.32);
+  --glass-shadow: 0 18px 46px rgba(20, 35, 51, 0.12);
+  --glass-shadow-soft: 0 10px 28px rgba(20, 35, 51, 0.075);
+  --glass-inner: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(20, 35, 51, 0.045);
+}
+
 body {
   margin: 0;
   background:
-    linear-gradient(135deg, rgba(47, 111, 159, 0.12), rgba(255, 255, 255, 0) 34%),
-    linear-gradient(225deg, rgba(209, 154, 46, 0.1), rgba(255, 255, 255, 0) 30%),
-    linear-gradient(180deg, #e8f0f5 0, #f7f9fb 360px, #f3f6f8 100%);
+    linear-gradient(115deg, rgba(47, 111, 159, 0.12), rgba(255, 255, 255, 0) 30%, rgba(255, 255, 255, 0.46) 52%, rgba(209, 154, 46, 0.10) 78%, rgba(255, 255, 255, 0) 100%),
+    linear-gradient(180deg, #eaf2f6 0, #f8fbfd 360px, #eef4f7 100%);
   background-attachment: fixed;
   color: #1f2933;
   font-family: Inter, "Segoe UI", Arial, sans-serif;
@@ -15,6 +33,37 @@ body {
 
 .app-shell {
   min-height: 100vh;
+}
+
+.metric-card,
+.concept-card,
+.journey-card,
+.term-item,
+.method-block,
+.explanation,
+.chart,
+.control-deck,
+.main-tab,
+.overview-reader-map,
+.storyline-panel,
+.equation-panel,
+.onboarding-panel,
+.forecast-stack-panel,
+.source-catalog-panel,
+.decision-logic-panel,
+.decision-table-panel,
+.diagnosis-method-panel,
+.diagnosis-card,
+.forecast-heading,
+.forecast-caveat,
+.guide-panel,
+.local-control-panel,
+.source-table-wrap,
+.source-table-empty,
+.decision-narrative {
+  backdrop-filter: var(--glass-filter);
+  -webkit-backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-inner), var(--glass-shadow-soft);
 }
 
 .hero {
@@ -26,6 +75,7 @@ body {
   background:
     linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(125deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 44%),
     #142333;
   background-size: 28px 28px, 28px 28px, auto;
   color: #ffffff;
@@ -66,14 +116,17 @@ body {
 }
 
 .hero-insight {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 6px;
   min-height: 98px;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.11);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 12px 28px rgba(2, 8, 23, 0.16);
+  backdrop-filter: blur(18px) saturate(1.22);
 }
 
 .hero-insight span {
@@ -91,11 +144,12 @@ body {
 }
 
 .hero-method {
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.12);
   padding: 18px;
   border-radius: 8px;
-  box-shadow: 0 16px 36px rgba(2, 8, 23, 0.18);
+  box-shadow: var(--glass-inner), 0 16px 36px rgba(2, 8, 23, 0.20);
+  backdrop-filter: blur(22px) saturate(1.28);
 }
 
 .hero-method h2 {
@@ -120,9 +174,9 @@ body {
 
 .hero-badges span {
   padding: 7px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.30);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
   color: rgba(255, 255, 255, 0.88);
   font-size: 0.8rem;
   font-weight: 800;
@@ -137,10 +191,11 @@ body {
 
 .hero-preview {
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.34);
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 42px rgba(2, 8, 23, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: var(--glass-inner), 0 20px 42px rgba(2, 8, 23, 0.28);
+  backdrop-filter: blur(22px) saturate(1.28);
 }
 
 .hero-preview img {
@@ -185,14 +240,13 @@ body {
 }
 
 .control-deck {
-  border: 1px solid rgba(203, 215, 225, 0.76);
+  border: 1px solid var(--glass-border);
   border-top: 3px solid #244c68;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.74);
+  background: linear-gradient(180deg, var(--glass-bg-strong), rgba(255, 255, 255, 0.62));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 14px 36px rgba(27, 39, 51, 0.085);
-  backdrop-filter: blur(18px) saturate(1.18);
+    var(--glass-inner),
+    var(--glass-shadow);
 }
 
 .control-deck > summary {
@@ -438,10 +492,10 @@ body {
   grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 6px;
   padding: 10px max(18px, calc((100vw - 1220px) / 2));
-  border-top: 1px solid rgba(217, 224, 230, 0.72);
-  border-bottom: 1px solid rgba(204, 215, 224, 0.8);
-  background: rgba(237, 243, 247, 0.74);
-  backdrop-filter: blur(20px) saturate(1.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.74);
+  border-bottom: 1px solid rgba(184, 200, 213, 0.62);
+  background: rgba(237, 243, 247, 0.70);
+  backdrop-filter: blur(24px) saturate(1.34);
 }
 
 .main-tab {
@@ -453,15 +507,14 @@ body {
   flex: initial !important;
   min-height: 40px;
   padding: 8px 14px !important;
-  border: 1px solid rgba(199, 209, 219, 0.82) !important;
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
   border-radius: 8px !important;
-  background: rgba(255, 255, 255, 0.68) !important;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.56)) !important;
   color: #33404c !important;
   font-size: 0.88rem;
   font-weight: 700;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    inset 0 -1px 0 rgba(27, 39, 51, 0.04);
+    var(--glass-inner);
   transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
@@ -472,13 +525,13 @@ body {
 }
 
 .main-tab--selected {
-  border-color: rgba(255, 255, 255, 0.35) !important;
+  border-color: rgba(255, 255, 255, 0.62) !important;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 45%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0) 48%),
     #244c68 !important;
   color: #ffffff !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
     0 12px 28px rgba(36, 76, 104, 0.26);
 }
 
@@ -700,14 +753,7 @@ body {
 }
 
 .journey-card::after {
-  content: "";
-  position: absolute;
-  right: -24px;
-  bottom: -28px;
-  width: 78px;
-  height: 78px;
-  border: 1px solid rgba(47, 111, 159, 0.12);
-  border-radius: 999px;
+  content: none;
 }
 
 .journey-number {
@@ -990,6 +1036,7 @@ body {
 .pipeline-tag {
   display: inline-flex;
   width: fit-content;
+  max-width: 100%;
   padding: 3px 7px;
   border-radius: 999px;
   background: #e7f0f5;
@@ -997,6 +1044,8 @@ body {
   font-size: 0.68rem;
   font-weight: 900;
   letter-spacing: 0.04em;
+  line-height: 1.2;
+  white-space: normal;
   text-transform: uppercase;
 }
 
@@ -1039,6 +1088,47 @@ body {
     rgba(255, 255, 255, 0.8);
   box-shadow: 0 12px 30px rgba(27, 39, 51, 0.055);
   backdrop-filter: blur(14px) saturate(1.12);
+}
+
+.decision-narrative {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  margin: -6px 0 18px;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  border-left: 5px solid #2f6f9f;
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 44%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(239, 246, 250, 0.66));
+}
+
+.decision-narrative::before,
+.metric-card::before,
+.concept-card::before,
+.diagnosis-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.52), rgba(255, 255, 255, 0) 42%);
+  pointer-events: none;
+}
+
+.decision-narrative > *,
+.metric-card > *,
+.concept-card > *,
+.diagnosis-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.decision-narrative p {
+  max-width: 1040px;
+  margin: 0;
+  color: #33404c;
+  line-height: 1.58;
 }
 
 .decision-logic-panel {
@@ -1115,6 +1205,8 @@ body {
 }
 
 .diagnosis-card {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 13px;
   min-height: 260px;
@@ -1155,7 +1247,7 @@ body {
 
 .diagnosis-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -1463,6 +1555,8 @@ body {
 }
 
 .concept-card {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 8px;
   min-height: 142px;
@@ -1615,14 +1709,15 @@ body {
 .metric-card,
 .method-block,
 .explanation {
-  border: 1px solid rgba(217, 224, 230, 0.86);
-  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--glass-border);
+  background: var(--glass-bg);
   border-radius: 8px;
-  box-shadow: 0 12px 30px rgba(27, 39, 51, 0.055);
-  backdrop-filter: blur(12px) saturate(1.1);
+  box-shadow: var(--glass-inner), var(--glass-shadow-soft);
 }
 
 .metric-card {
+  position: relative;
+  overflow: hidden;
   display: grid;
   gap: 6px;
   min-height: 118px;
@@ -1730,16 +1825,16 @@ body {
 
 .chart {
   overflow: hidden;
-  border: 1px solid rgba(217, 224, 230, 0.86);
+  border: 1px solid var(--glass-border);
   border-top: 3px solid #244c68;
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 251, 253, 0.72)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0) 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(248, 251, 253, 0.66)),
     rgba(255, 255, 255, 0.72);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    var(--glass-inner),
     0 18px 38px rgba(27, 39, 51, 0.08);
-  backdrop-filter: blur(14px) saturate(1.12);
 }
 
 .chart-glow {

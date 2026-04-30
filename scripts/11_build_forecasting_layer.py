@@ -620,7 +620,16 @@ def forecast_predictions_for_origin(
     if train_mask.sum() < 60 or test_mask.sum() == 0:
         return pd.DataFrame()
 
-    latest = work.loc[test_mask, ["REF_AREA", "country_name", "TIME_PERIOD", target_col]].copy()
+    latest = work.loc[
+        test_mask,
+        ["REF_AREA", "country_name", "TIME_PERIOD", "period_sort", target_col, "target_next"],
+    ].copy()
+    latest = latest.rename(
+        columns={
+            "period_sort": "origin_period_sort",
+            "target_next": "actual_next_score",
+        }
+    )
     origin_period = str(latest["TIME_PERIOD"].iloc[0])
     target_period = next_half_year_label(origin_period)
     y_train = y_all.loc[train_mask]
@@ -673,6 +682,9 @@ def forecast_predictions_for_origin(
 
     predictions = pd.concat(rows, ignore_index=True)
     predictions = predictions.rename(columns={target_col: "current_score"})
+    predictions["actual_delta"] = predictions["actual_next_score"] - predictions["current_score"]
+    predictions["forecast_error"] = predictions["predicted_score"] - predictions["actual_next_score"]
+    predictions["forecast_abs_error"] = predictions["forecast_error"].abs()
     return predictions
 
 
@@ -707,6 +719,8 @@ def driver_text(row: pd.Series, latest_context: pd.DataFrame) -> str:
         "bls_terms_conditions_sme": "BLS terms and conditions pressure",
         "mir_small_loan_rate": "MIR small-loan rate pressure",
         "mir_rate_spread_small_large": "Small-loan spread pressure",
+        "eurostat_bankruptcies_index": "Eurostat bankruptcy index pressure",
+        "eurostat_bankruptcy_registration_gap": "Eurostat bankruptcy-registration gap",
     }
     for col, label in context_labels.items():
         if col in row.index and col in latest_context.columns and pd.notna(row[col]):
@@ -731,11 +745,17 @@ def build_decision_board(
     predictions: pd.DataFrame,
     best_ml_key: str,
     target_col: str,
+    origin_period_sort: int | None = None,
 ) -> pd.DataFrame:
     if predictions.empty:
         return pd.DataFrame()
-    origin_period_sort = frame["period_sort"].max()
+    if origin_period_sort is None:
+        if "origin_period_sort" in predictions.columns and predictions["origin_period_sort"].notna().any():
+            origin_period_sort = int(predictions["origin_period_sort"].dropna().iloc[0])
+        else:
+            origin_period_sort = int(frame["period_sort"].max())
     latest = frame[frame["period_sort"] == origin_period_sort].copy()
+    latest["origin_period_sort"] = int(origin_period_sort)
     latest = latest.rename(columns={target_col: "current_score", "Relative_Gap_equal": "gap_value"})
 
     ml_predictions = predictions[predictions["model_key"].isin(ML_MODEL_KEYS)].copy()
@@ -749,9 +769,18 @@ def build_decision_board(
             ml_model_count=("model_key", "nunique"),
         )
     )
-    best = predictions[predictions["model_key"] == best_ml_key][
-        ["REF_AREA", "predicted_score", "predicted_delta", "model_label"]
-    ].rename(
+    best_columns = [
+        "REF_AREA",
+        "predicted_score",
+        "predicted_delta",
+        "model_label",
+        "forecast_target_period",
+        "actual_next_score",
+        "actual_delta",
+        "forecast_abs_error",
+    ]
+    best_columns = [col for col in best_columns if col in predictions.columns]
+    best = predictions[predictions["model_key"] == best_ml_key][best_columns].rename(
         columns={
             "predicted_score": "best_model_forecast",
             "predicted_delta": "best_model_delta",
@@ -761,6 +790,14 @@ def build_decision_board(
     board = latest.merge(ml_summary, on=["REF_AREA", "country_name"], how="left").merge(best, on="REF_AREA", how="left")
     board["forecast_range"] = board["ml_max_forecast"] - board["ml_min_forecast"]
     board["forecast_direction"] = np.where(board["best_model_delta"] >= 0, "Rising", "Easing")
+    if {"actual_next_score", "actual_delta"}.issubset(board.columns):
+        board["realized_direction"] = np.where(board["actual_delta"] >= 0, "Rising", "Easing")
+        board.loc[board["actual_delta"].isna(), "realized_direction"] = np.nan
+        board["forecast_hit_direction"] = np.where(
+            board["actual_delta"].notna(),
+            np.sign(board["best_model_delta"]) == np.sign(board["actual_delta"]),
+            np.nan,
+        )
 
     scores = []
     for row in board.itertuples():
@@ -803,6 +840,8 @@ def build_decision_board(
         "REF_AREA",
         "country_name",
         "TIME_PERIOD",
+        "origin_period_sort",
+        "forecast_target_period",
         "risk_tier",
         "risk_score",
         "confidence",
@@ -811,6 +850,11 @@ def build_decision_board(
         "best_model_label",
         "best_model_forecast",
         "best_model_delta",
+        "actual_next_score",
+        "actual_delta",
+        "forecast_abs_error",
+        "forecast_hit_direction",
+        "realized_direction",
         "forecast_direction",
         "ml_median_forecast",
         "ml_min_forecast",
@@ -827,6 +871,91 @@ def build_decision_board(
     board["_tier_order"] = board["risk_tier"].map(tier_order)
     board = board.sort_values(["_tier_order", "risk_score", "current_score"], ascending=[True, False, False])
     return board.drop(columns=["_tier_order"])
+
+
+def build_all_forecast_predictions(frame: pd.DataFrame, target_col: str) -> pd.DataFrame:
+    periods = sorted(frame["period_sort"].dropna().unique())
+    prediction_frames = []
+    for origin_period_sort in periods[8:]:
+        predictions = forecast_predictions_for_origin(frame, target_col, int(origin_period_sort))
+        if not predictions.empty:
+            prediction_frames.append(predictions)
+    if not prediction_frames:
+        return pd.DataFrame()
+    return pd.concat(prediction_frames, ignore_index=True)
+
+
+def build_all_decision_boards(
+    frame: pd.DataFrame,
+    predictions: pd.DataFrame,
+    best_ml_key: str,
+    target_col: str,
+) -> pd.DataFrame:
+    if predictions.empty or "origin_period_sort" not in predictions.columns:
+        return pd.DataFrame()
+    boards = []
+    for origin_period_sort, subset in predictions.groupby("origin_period_sort"):
+        board = build_decision_board(
+            frame,
+            subset.copy(),
+            best_ml_key,
+            target_col,
+            origin_period_sort=int(origin_period_sort),
+        )
+        if not board.empty:
+            boards.append(board)
+    if not boards:
+        return pd.DataFrame()
+    return pd.concat(boards, ignore_index=True)
+
+
+def build_forecast_country_error(predictions: pd.DataFrame) -> pd.DataFrame:
+    if predictions.empty or "actual_next_score" not in predictions.columns:
+        return pd.DataFrame()
+    valid = predictions[predictions["actual_next_score"].notna()].copy()
+    if valid.empty:
+        return pd.DataFrame()
+    valid["direction_hit"] = np.sign(valid["predicted_delta"]) == np.sign(valid["actual_delta"])
+    grouped = (
+        valid.groupby(["REF_AREA", "country_name", "model_key", "model_label", "model_family"], as_index=False)
+        .agg(
+            n_origins=("origin_period_sort", "nunique"),
+            mean_abs_error=("forecast_abs_error", "mean"),
+            rmse=("forecast_error", lambda values: float(np.sqrt(np.mean(np.square(values))))),
+            bias=("forecast_error", "mean"),
+            direction_hit_share=("direction_hit", "mean"),
+            mean_predicted_delta=("predicted_delta", "mean"),
+            mean_actual_delta=("actual_delta", "mean"),
+        )
+        .sort_values(["model_family", "mean_abs_error", "country_name"])
+    )
+    return grouped
+
+
+def build_risk_tier_validation(decision_history: pd.DataFrame) -> pd.DataFrame:
+    if decision_history.empty or "actual_next_score" not in decision_history.columns:
+        return pd.DataFrame()
+    valid = decision_history[decision_history["actual_next_score"].notna()].copy()
+    if valid.empty:
+        return pd.DataFrame()
+    grouped = (
+        valid.groupby("risk_tier", as_index=False)
+        .agg(
+            n_country_origins=("REF_AREA", "count"),
+            n_countries=("REF_AREA", "nunique"),
+            n_origins=("origin_period_sort", "nunique"),
+            mean_risk_score=("risk_score", "mean"),
+            mean_current_score=("current_score", "mean"),
+            mean_actual_next_score=("actual_next_score", "mean"),
+            mean_actual_delta=("actual_delta", "mean"),
+            pressure_rose_share=("actual_delta", lambda values: float(np.mean(values > 0))),
+            direction_hit_share=("forecast_hit_direction", "mean"),
+            mean_forecast_abs_error=("forecast_abs_error", "mean"),
+        )
+    )
+    tier_order = {"Alert": 0, "Watch": 1, "Monitor": 2, "Normal": 3}
+    grouped["_tier_order"] = grouped["risk_tier"].map(tier_order)
+    return grouped.sort_values("_tier_order").drop(columns="_tier_order")
 
 
 def write_source_catalog(
@@ -977,15 +1106,34 @@ def build_forecasting_layer() -> None:
     strongest_baseline = recent_scores[recent_scores["model_key"].isin(BASELINE_MODEL_KEYS)].sort_values("recent_mae").iloc[0]
 
     latest_origin = int(frame["period_sort"].max())
-    latest_predictions = forecast_predictions_for_origin(frame, "SME_FPI_equal_z", latest_origin)
+    all_predictions = build_all_forecast_predictions(frame, "SME_FPI_equal_z")
+    all_predictions.to_csv(PROCESSED_DIR / "forecast_model_predictions_all_origins.csv", index=False)
+    latest_predictions = all_predictions[all_predictions["origin_period_sort"] == latest_origin].copy()
+    if latest_predictions.empty:
+        latest_predictions = forecast_predictions_for_origin(frame, "SME_FPI_equal_z", latest_origin)
     latest_predictions.to_csv(PROCESSED_DIR / "latest_forecast_model_predictions.csv", index=False)
-    decision_board = build_decision_board(
+    decision_history = build_all_decision_boards(
         frame,
-        latest_predictions,
+        all_predictions,
         str(best_row["model_key"]),
         "SME_FPI_equal_z",
     )
+    decision_history.to_csv(PROCESSED_DIR / "decision_board_all_origins.csv", index=False)
+    if not decision_history.empty:
+        decision_board = decision_history[decision_history["origin_period_sort"] == latest_origin].copy()
+    else:
+        decision_board = build_decision_board(
+            frame,
+            latest_predictions,
+            str(best_row["model_key"]),
+            "SME_FPI_equal_z",
+            origin_period_sort=latest_origin,
+        )
     decision_board.to_csv(PROCESSED_DIR / "forecast_decision_board.csv", index=False)
+    country_error = build_forecast_country_error(all_predictions)
+    country_error.to_csv(PROCESSED_DIR / "forecasting_country_error.csv", index=False)
+    tier_validation = build_risk_tier_validation(decision_history)
+    tier_validation.to_csv(PROCESSED_DIR / "risk_tier_validation.csv", index=False)
 
     summary = {
         "rows_forecasting_feature_panel": len(frame),
@@ -995,6 +1143,10 @@ def build_forecasting_layer() -> None:
             [col for col in frame.columns if col.startswith(("bls_", "mir_", "eurostat_"))]
         ),
         "backtest_rows": len(evaluation),
+        "forecast_prediction_rows_all_origins": len(all_predictions),
+        "decision_history_rows": len(decision_history),
+        "country_error_rows": len(country_error),
+        "risk_tier_validation_rows": len(tier_validation),
         "best_recent_model_key": best_row["model_key"],
         "best_recent_model_label": best_row["model_label"],
         "best_recent_model_mae": best_row["recent_mae"],

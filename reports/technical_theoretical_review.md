@@ -221,3 +221,38 @@ Fix:
 ## Bottom line
 
 The implementation is theoretically coherent and technically functional. SQL and the general-audience redesign are now implemented. The main remaining packaging gap is that the R Markdown report could not be knitted because `Rscript` is not available on PATH in the current shell environment.
+
+## 2026-04-30 Dashboard and Forecasting Upgrade Review
+
+### Additional implementation status
+
+- Forecasting layer now includes BLS, MIR, Eurostat, macro, micro SAFE-cube, CISS, and lagged SME-FPI predictors.
+- The core SME-FPI index remains built only from the six borrower-side ECB SAFE financing-pain components.
+- Rolling-origin validation now produces all-origin model predictions, historical decision-board tiers, country-level forecast errors, and risk-tier validation.
+- The dashboard exposes the method/data distinction through the Overview, Forecast Lab, Decision Board, Country Diagnosis, and Methodology/source catalog views.
+
+### Technical checks passed
+
+| Check | Result |
+|---|---|
+| Python syntax check for dashboard and forecasting scripts | Pass |
+| Forecasting layer rebuild | Pass |
+| Nine-model suite present in model evaluation | Pass |
+| Future/target leakage blocked from forecast feature columns | Pass |
+| Eurostat predictors documented as external forecasting inputs | Pass |
+| Historical decision-board outputs generated | Pass |
+| New Dash figure builders render from processed data | Pass |
+| `unittest` smoke suite | Pass |
+
+### Forecasting interpretation
+
+The recent best model is Ridge, with a small positive MAE improvement versus the strongest simple baseline. This is theoretically plausible because the panel is small, country-period observations are correlated, and regularized linear models are less likely to overfit than high-capacity nonlinear models.
+
+The dashboard should therefore describe the forecast as an early-warning experiment, not as a production credit-risk model. The risk tier is a triage label that combines current borrower-side pressure, hidden SME-CISS gap, H+1 model signal, and model agreement. It is not a causal or policy-action rule.
+
+### Theoretical caveats to keep visible
+
+- Eurostat, BLS, MIR, macro, and micro SAFE-cube variables are predictors or validation context, not components of the SME-FPI Core.
+- CISS remains a shared euro-area market-stress benchmark, not a country-specific SME credit series.
+- Full-sample z-scores are useful for retrospective analysis; fixed-baseline and robustness views should be used when presenting a real-time monitoring interpretation.
+- Historical Alert/Watch tiers can indicate high stress even when the next period mean-reverts, so tier validation should be read as stress-state validation plus direction-check evidence, not as guaranteed acceleration.
