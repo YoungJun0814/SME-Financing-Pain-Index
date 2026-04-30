@@ -4,6 +4,8 @@ __pycache__/
 .ipynb_checkpoints/
 .jupyter_runtime/
 notebooks/_*.py
+dashboard/assets/signature_sme_fpi_story.png
+dashboard/*.log
 
 # Local environments
 .venv/

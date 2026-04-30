@@ -1018,7 +1018,7 @@ Current SAFE severity variables are not clean parts of a single total.
 Recommended framework:
 
 ```text
-Streamlit
+Dash + Plotly
 ```
 
 Reason:
@@ -1026,21 +1026,23 @@ Reason:
 - Open source.
 - Python-native.
 - Works well with pandas and Plotly.
-- Fast to develop.
+- More natural for Plotly hover interactions, animated frames, and 3D figures.
 - Suitable for a personal portfolio dashboard.
 
-## Dashboard Pages
+## Dashboard Tabs
 
-### Page 1: Story Overview
+### Tab 1: Overview
 
 Content:
 
 - Research question.
 - Key metrics.
-- SME_FPI vs CISS line chart.
-- Latest hidden gap summary.
+- SME_FPI plain-English definition.
+- Dataset shape.
+- Monitoring-style threshold notes.
+- Storytelling logic.
 
-### Page 2: Country Explorer
+### Tab 2: Explorer
 
 Controls:
 
@@ -1050,33 +1052,29 @@ Controls:
 
 Charts:
 
-- Country time series.
-- Country gap vs CISS.
-- Country rank over time.
+- SME_FPI vs CISS time series.
+- Weighting robustness comparison.
+- Animated stress motion over time.
+- Country-period heatmap.
+- Component heatmap.
 
-### Page 3: Map and Ranking
-
-Controls:
-
-- Period selector.
-- Index version selector.
+### Tab 3: Hidden Stress
 
 Charts:
 
 - Choropleth map.
-- Horizontal ranking bar chart.
+- Relative SME-CISS gap ranking.
+- Bubble diagnostic.
 
-### Page 4: Model Validation
+### Tab 4: Regimes
 
 Charts:
 
-- PCA loadings.
 - PCA correlation circle.
 - PCA cluster scatterplot.
-- Boxplot by regime.
-- Correlation heatmap.
+- Exploratory 3D PCA regime plot.
 
-### Page 5: Big Data Cube Explorer
+### Tab 5: Big Data Cube
 
 Controls:
 
@@ -1092,7 +1090,7 @@ Charts:
 - Top-box share heatmap.
 - Trend chart.
 
-### Page 6: Methodology
+### Tab 6: Methodology
 
 Content:
 
@@ -1101,6 +1099,26 @@ Content:
 - Weighting methods.
 - Missing data handling.
 - Limitations.
+
+## Dashboard Implementation Update
+
+Implemented in:
+
+```text
+dashboard/app.py
+dashboard/assets/style.css
+```
+
+Current dashboard design decisions:
+
+- Use one global control area for countries, index version, and period range.
+- Move SAFE problem, firm size, and sector controls into the Big Data Cube tab because those filters only affect the survey-cube diagnostics.
+- Keep all countries selected by default, but switch crowded charts to summary mode where needed.
+- Use tabs instead of one long report page: Overview, Explorer, Hidden Stress, Regimes, Big Data Cube, and Methodology.
+- Add an animated stress-motion chart to show country movement through time.
+- Add a 3D PCA regime explorer as an exploratory multidimensional view, with a clear caveat that it is not the primary evidence.
+- Add figure notes under charts so a non-specialist viewer can understand what each chart shows, why the chart type was chosen, and the key insight.
+- Add context guides for SAFE, CISS, the relative SME-CISS gap, and the four index versions so a data-visualization evaluator can read the finance context without prior domain knowledge.
 
 ## Three-Course Alignment Checklist
 
@@ -1241,15 +1259,16 @@ Outputs:
 
 Tasks:
 
-- Build Streamlit dashboard.
-- Add page navigation.
-- Add interactive filters.
-- Add chart explanations.
+- Build Dash + Plotly dashboard.
+- Add tab navigation.
+- Add global controls and local Big Data Cube controls.
+- Add hover diagnostics, animated stress motion, and 3D PCA explorer.
+- Add chart explanations and methodology caveats.
 
 Outputs:
 
 - `dashboard/app.py`
-- `dashboard/README.md`
+- `dashboard/assets/style.css`
 
 ## Phase 5: Final Portfolio Polish
 
@@ -1287,7 +1306,7 @@ The next concrete step should be:
 
 This is the best next step because it improves the current story and methodology without depending on new external data collection.
 
-After that, add external validation variables and build the dashboard.
+The dashboard has now been implemented as a Dash + Plotly observatory. The next improvement should focus on polishing the notebook/report narrative and deciding whether additional external validation variables are worth adding.
 
 ## Final Judgement
 

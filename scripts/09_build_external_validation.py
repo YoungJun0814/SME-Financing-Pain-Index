@@ -256,10 +256,28 @@ def write_variable_expansion_candidates() -> None:
             "use": "External macro context and future stress validation",
         },
         {
-            "layer": "Lender-side validation",
-            "variable": "ECB Bank Lending Survey credit standards",
-            "status": "not implemented",
-            "use": "Recommended next validation extension",
+            "layer": "Lender-side forecasting",
+            "variable": "ECB Bank Lending Survey credit standards / loan demand / terms",
+            "status": "implemented",
+            "use": "Forecasting predictor layer only",
+        },
+        {
+            "layer": "Loan-market forecasting",
+            "variable": "ECB MIR small-loan rates / large-loan rates / small-loan volumes",
+            "status": "implemented",
+            "use": "Forecasting predictor layer only",
+        },
+        {
+            "layer": "Outcome validation",
+            "variable": "Eurostat bankruptcies and business registrations",
+            "status": "planned next",
+            "use": "External forecast target and validation extension",
+        },
+        {
+            "layer": "Business-cycle expectations",
+            "variable": "European Commission business confidence indicators",
+            "status": "planned next",
+            "use": "Monthly expectations predictor extension",
         },
     ]
     pd.DataFrame(records).to_csv(

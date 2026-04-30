@@ -14,6 +14,11 @@ Can a borrower-side SME Financing Pain Index reveal SME credit stress in Europe 
 | `data/processed/safe_problem_severity_cube.csv` | 20,570 | Problem severity cube with weighted severity, top-box share, and high-pressure share. |
 | `data/processed/macro_context_panel.csv` | 386 | World Bank annual macro indicators aligned to the country-half-year panel. |
 | `data/processed/external_validation_panel.csv` | 386 | Main panel plus future validation targets from SAFE Q0B, CISS, and macro context. |
+| `data/processed/forecasting_feature_panel.csv` | 386 | Expanded early-warning panel with SME-FPI, macro, micro, BLS, MIR, Eurostat, current values, and lagged predictors. |
+| `data/processed/forecasting_model_evaluation.csv` | 216 | Rolling-origin H+1 forecast evaluation comparing Elastic Net, Ridge, Random Forest, Gradient Boosting, and five simple baselines. |
+| `data/processed/latest_forecast_model_predictions.csv` | 108 | Latest-origin model predictions by country and model. |
+| `data/processed/forecast_decision_board.csv` | 12 | Latest country risk tier, confidence, model agreement, and driver summary. |
+| `data/processed/dashboard_source_catalog.csv` | 15 | Dashboard-facing source inventory showing which datasets build the index and which feed forecasting/validation. |
 
 ## SME_FPI Components
 
@@ -70,6 +75,31 @@ World Bank annual indicators are aligned to the matching year of each half-year 
 | `domestic_credit_private_pct_gdp_change` | Annual change in private credit as % of GDP. | Lower change is worse. |
 | `macro_stress_context_z` | Mean of available standardized macro stress components. | Higher means worse macro-financial context. |
 
+## Forecasting Predictor Layer
+
+The forecasting layer keeps the SME-FPI Core definition unchanged. Extra variables enter only as predictors or validation checks.
+
+| Variable Group | Example Columns | Source | Use |
+|---|---|---|---|
+| Current pain | `SME_FPI_equal_z`, component z-scores, `PC1`, `PC2`, relative gaps | ECB SAFE and ECB CISS | Baseline signal and current state. |
+| Macro climate | `macro_gdp_slowdown_z`, `macro_unemployment_z`, `macro_inflation_z`, `macro_stress_context_z` | World Bank | Forecasting predictor and context. |
+| Micro vulnerability | `micro_access_finance_severity`, firm-size and sector access severity, broad problem pressure | ECB SAFE Q0B cube | Forecasting predictor and diagnostic segmentation. |
+| Lender-side signal | `bls_credit_standards_sme`, `bls_loan_demand_sme`, `bls_terms_conditions_sme` | ECB Bank Lending Survey | Forecasting predictor only. |
+| Loan-market signal | `mir_small_loan_rate`, `mir_large_loan_rate`, `mir_rate_spread_small_large`, `mir_small_loan_volume` | ECB MIR | Forecasting predictor only. |
+| Business outcome signal | `eurostat_bankruptcies_index`, `eurostat_registrations_index`, `eurostat_bankruptcy_registration_gap` | Eurostat STS `sts_rb_q` | External real-economy predictor and validation context. |
+| Lagged predictors | `_lag1`, `_lag2` columns | Derived | Prevents the model from relying only on same-period levels. |
+
+## Forecast Evaluation Outputs
+
+| File | Purpose |
+|---|---|
+| `forecasting_feature_panel.csv` | Main machine-learning feature table used by the dashboard Forecast Lab. |
+| `forecasting_model_evaluation.csv` | Rolling-origin H+1 forecast evaluation with model-level MAE/RMSE, improvement versus naive, improvement versus the strongest simple baseline, and recent best-model selection. |
+| `forecasting_layer_summary.csv` | Compact dashboard KPI summary for feature counts and recent backtest scores. |
+| `latest_forecast_model_predictions.csv` | Latest H+1 country predictions for every baseline and ML model. |
+| `forecast_decision_board.csv` | Latest country-level risk tier, confidence label, directional model agreement, and primary drivers. |
+| `dashboard_source_catalog.csv` | Source/method inventory displayed inside the Methodology tab. |
+
 ## Validation Outputs
 
 | File | Purpose |
@@ -87,4 +117,7 @@ World Bank annual indicators are aligned to the matching year of each half-year 
 - Full-sample standardization is useful for retrospective comparison but not ideal for real-time monitoring.
 - Fixed-baseline standardization addresses that issue but changes the scale.
 - World Bank macro data are annual, so the macro validation layer is broad context rather than high-frequency evidence.
-- Bank Lending Survey variables are still recommended for the next lender-side validation extension.
+- ECB BLS, MIR, and Eurostat variables are used in the forecasting layer, not in the SME-FPI Core, so the index remains a borrower-side measure.
+- Eurostat registrations and bankruptcies describe broad business demography, not SME-specific credit outcomes.
+- Decision Board tiers are heuristic monitoring labels and should be interpreted together with drivers, model agreement, and data coverage.
+- European Commission business confidence remains the next recommended expectations extension.

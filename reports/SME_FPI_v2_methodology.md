@@ -106,6 +106,32 @@ high_pressure_share_7_10 = share of valid responses rated 7, 8, 9, or 10
 
 The top-box and high-pressure shares are included because they are safer for ordinal survey data than relying only on the exact distance between response levels.
 
+## Early-Warning Forecasting Layer
+
+The forecasting extension keeps the SME_FPI Core as a borrower-side SAFE index. Additional macro, micro, lender-side, and loan-market variables are used only as predictors or validation checks.
+
+The H+1 forecast target is:
+
+```text
+target(c,t) = SME_FPI_equal_z(c,t+1)
+```
+
+The expanded predictor stack includes:
+
+- current SME_FPI versions, component z-scores, PCA coordinates, CISS, and SME-CISS gaps,
+- World Bank macro context variables,
+- SAFE Q0B micro vulnerability variables by firm size, sector, and problem severity,
+- ECB Bank Lending Survey SME credit standards, loan demand, and terms/conditions,
+- ECB MIR small-loan rates, large-loan benchmarks, rate spreads, and loan volumes,
+- Eurostat business bankruptcy and registration indexes,
+- one-period and two-period lagged versions where available.
+
+The dashboard uses a small model suite for the early-warning layer rather than relying on one algorithm. Elastic Net and Ridge provide regularized linear machine-learning benchmarks for a small, correlated panel; Random Forest and Gradient Boosting test whether nonlinear predictor interactions add value. All models are compared against five simple baselines: current-value naive, country historical mean, country AR(1), last-change extrapolation, and pooled lag OLS.
+
+The forecast is interpreted as a diagnostic early-warning score, not as a production credit-risk model or causal prediction system.
+
+The Decision Board translates the analytical outputs into monitoring tiers. Alert, Watch, Monitor, and Normal combine current SME_FPI, the SME-FPI minus CISS gap, the best recent ML H+1 forecast, and agreement across the four ML models. These tiers are evidence bundles for analyst attention, not automated policy recommendations.
+
 ## External and Forward Validation
 
 The validation panel compares SME_FPI versions with future targets:
@@ -131,9 +157,12 @@ The within-country correlation is important because raw panel correlations can b
 - The analysis is descriptive and correlational, not causal.
 - SAFE survey responses measure perceived and reported financing conditions.
 - Annual macro variables are lower-frequency than SAFE half-year observations.
+- Eurostat registrations and bankruptcies are broad business-demography indicators, not SME-specific credit outcomes.
 - PCA weights maximize explained variance, not economic importance.
 - Reliability weights are internal validation, not external truth.
-- Bank Lending Survey credit-standard variables remain a recommended next extension.
+- Forecast models use median imputation for missing predictors and should be read as monitoring diagnostics, not structural economic models.
+- Decision Board tiers are heuristic analyst-attention labels, not automated policy classifications.
+- Additional real-economy outcome variables, such as bankruptcies or business-confidence data, remain recommended next extensions.
 
 ## Current Project Status
 
@@ -147,6 +176,8 @@ The project now satisfies the pre-dashboard methodological roadmap:
 - big-cube top-box and high-pressure robustness,
 - macro context panel,
 - external and forward validation panel,
+- BLS/MIR/Eurostat forecasting data,
+- expanded forecasting feature panel and rolling-origin backtest,
 - data dictionary and methodology documentation.
 
-The remaining major product step is the Streamlit dashboard.
+The project now includes an interactive Dash dashboard for story, exploration, validation, and forecast diagnostics.

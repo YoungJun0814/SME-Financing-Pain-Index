@@ -1,0 +1,16 @@
+layer,dataset,status,role,rows,dashboard_use
+SME-FPI Core,ECB SAFE component series,implemented,borrower-side index construction,11300,Builds the six-component SME-FPI Core
+Micro diagnostic layer,ECB SAFE Q0B problem-severity cube,implemented,"firm-size, sector, and problem pressure predictors",231231,"Forecasting features, Big Data diagnostics, validation targets"
+Macro context,World Bank annual indicators,implemented,macro pressure predictors and validation context,386,Forecasting predictor only; not part of SME-FPI Core
+Market benchmark,ECB New CISS,implemented,financial-market stress benchmark,386,"Gap analysis, validation, and forecasting predictor"
+ECB Bank Lending Survey,forecast_bls_credit_standards_sme.csv,implemented,lender-side predictor,385,Forecasting predictor only; not part of SME-FPI Core
+ECB Bank Lending Survey,forecast_bls_credit_standards_sme_fwd.csv,implemented,lender-side forward expectation predictor,385,Forecasting predictor only; not part of SME-FPI Core
+ECB Bank Lending Survey,forecast_bls_terms_conditions_sme.csv,implemented,lender-side predictor,253,Forecasting predictor only; not part of SME-FPI Core
+ECB Bank Lending Survey,forecast_bls_loan_demand_sme.csv,implemented,credit demand predictor,385,Forecasting predictor only; not part of SME-FPI Core
+ECB Bank Lending Survey,forecast_bls_rejection_share_enterprise.csv,implemented,lender-side outcome predictor,253,Forecasting predictor only; not part of SME-FPI Core
+ECB MFI Interest Rate Statistics,forecast_mir_small_loan_rate.csv,implemented,loan-cost predictor,384,Forecasting predictor only; not part of SME-FPI Core
+ECB MFI Interest Rate Statistics,forecast_mir_large_loan_rate.csv,implemented,large-loan cost benchmark,419,Forecasting predictor only; not part of SME-FPI Core
+ECB MFI Interest Rate Statistics,forecast_mir_small_loan_volume.csv,implemented,small-loan volume predictor,379,Forecasting predictor only; not part of SME-FPI Core
+Eurostat short-term business statistics,forecast_eurostat_bankruptcies_index.csv,implemented,real-economy business-stress predictor,144,Forecasting predictor only; not part of SME-FPI Core
+Eurostat short-term business statistics,forecast_eurostat_registrations_index.csv,implemented,business-formation predictor,162,Forecasting predictor only; not part of SME-FPI Core
+Business-cycle expectations,European Commission Business and Consumer Surveys,planned next,monthly confidence and expectations predictors,0,Forecasting predictor once pulled
