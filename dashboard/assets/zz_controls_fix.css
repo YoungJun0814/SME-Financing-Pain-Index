@@ -1,0 +1,235 @@
+/* Final controls repair: full-width panel, no collapsed narrow card. */
+.controls-section-fixed {
+  width: 100% !important;
+  max-width: none !important;
+  padding: 16px max(18px, calc((100vw - 1240px) / 2)) !important;
+  background: #eef3f8 !important;
+}
+
+.controls-section-fixed > .control-panel-fixed {
+  width: min(1240px, calc(100vw - 36px)) !important;
+  max-width: 1240px !important;
+  min-width: 0 !important;
+  margin: 0 auto !important;
+  display: grid !important;
+  gap: 0 !important;
+  overflow: visible !important;
+  border: 1px solid #d6e3ef !important;
+  border-radius: 12px !important;
+  background: #ffffff !important;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06) !important;
+}
+
+.control-panel-fixed > .control-summary {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto !important;
+  align-items: center !important;
+  gap: 16px !important;
+  width: 100% !important;
+  min-height: 64px !important;
+  padding: 16px 18px !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%) !important;
+  cursor: pointer !important;
+  list-style: none !important;
+}
+
+.control-panel-fixed > .control-summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.control-panel-fixed > .control-summary::after {
+  content: "Open controls" !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 118px !important;
+  min-height: 34px !important;
+  padding: 8px 13px !important;
+  border: 1px solid #bfdbfe !important;
+  border-radius: 999px !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  font-size: 0.78rem !important;
+  font-weight: 900 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  box-shadow: 0 6px 16px rgba(29, 78, 216, 0.08) !important;
+}
+
+.control-panel-fixed[open] > .control-summary {
+  border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.control-panel-fixed[open] > .control-summary::after {
+  content: "Close controls" !important;
+  border-color: #cbd5e1 !important;
+  background: #ffffff !important;
+  color: #334155 !important;
+}
+
+.control-summary-copy {
+  display: grid !important;
+  gap: 4px !important;
+  min-width: 0 !important;
+}
+
+.control-summary-copy strong {
+  display: block !important;
+  color: #0f172a !important;
+  font-size: 1.05rem !important;
+  font-weight: 850 !important;
+  line-height: 1.2 !important;
+}
+
+.control-summary-copy span {
+  display: block !important;
+  max-width: none !important;
+  color: #64748b !important;
+  font-size: 0.86rem !important;
+  font-weight: 650 !important;
+  line-height: 1.35 !important;
+  white-space: normal !important;
+}
+
+.control-summary-chips {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-end !important;
+  gap: 8px !important;
+}
+
+.control-summary-chips span {
+  display: inline-flex !important;
+  align-items: center !important;
+  min-height: 30px !important;
+  padding: 6px 11px !important;
+  border: 1px solid #dbeafe !important;
+  border-radius: 999px !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  font-size: 0.76rem !important;
+  font-weight: 850 !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
+
+.control-panel-fixed > .control-deck-body {
+  display: grid !important;
+  gap: 16px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 18px !important;
+  overflow: visible !important;
+}
+
+.control-panel-fixed .controls-inner-heading {
+  display: none !important;
+}
+
+.control-panel-fixed .global-control-grid {
+  display: grid !important;
+  grid-template-columns: minmax(300px, 1.1fr) minmax(260px, 0.8fr) minmax(360px, 1.4fr) !important;
+  gap: 16px !important;
+  align-items: stretch !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.control-panel-fixed .control {
+  min-width: 0 !important;
+  padding: 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 10px !important;
+  background: #f8fafc !important;
+}
+
+.control-panel-fixed .control > span {
+  display: block !important;
+  margin-bottom: 10px !important;
+  color: #334155 !important;
+  font-size: 0.82rem !important;
+  font-weight: 900 !important;
+  line-height: 1.2 !important;
+}
+
+.control-panel-fixed .country-drawer {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.control-panel-fixed .country-drawer > summary {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  min-height: 38px !important;
+  padding: 8px 12px !important;
+  border: 1px solid #dbeafe !important;
+  border-radius: 999px !important;
+  background: #ffffff !important;
+  color: #1e293b !important;
+  font-size: 0.82rem !important;
+  font-weight: 850 !important;
+}
+
+.control-panel-fixed .country-drawer > summary::after {
+  content: "Open" !important;
+  padding: 4px 8px !important;
+  border-radius: 999px !important;
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+  font-size: 0.7rem !important;
+  font-weight: 900 !important;
+}
+
+.control-panel-fixed .country-drawer[open] > summary::after {
+  content: "Close" !important;
+}
+
+.control-panel-fixed .quick-context-strip {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 12px !important;
+}
+
+.control-panel-fixed .quick-context-strip > div {
+  min-width: 0 !important;
+  padding: 12px 14px !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 10px !important;
+  background: #ffffff !important;
+}
+
+.control-panel-fixed .guide-panel,
+.control-panel-fixed .research-value-panel {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+@media (max-width: 1120px) {
+  .control-panel-fixed .global-control-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .control-panel-fixed .quick-context-strip {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .control-panel-fixed > .control-summary {
+    grid-template-columns: 1fr !important;
+  }
+
+  .control-summary-chips {
+    justify-content: flex-start !important;
+  }
+
+  .control-panel-fixed > .control-summary::after {
+    width: fit-content !important;
+  }
+
+  .control-panel-fixed > .control-deck-body {
+    padding: 14px !important;
+  }
+}

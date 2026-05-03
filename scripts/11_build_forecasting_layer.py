@@ -12,6 +12,8 @@ from sklearn.linear_model import ElasticNetCV, LinearRegression, RidgeCV
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from statsmodels.tools.sm_exceptions import ConvergenceWarning as StatsmodelsConvergenceWarning
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
@@ -34,6 +36,8 @@ FORECAST_MODEL_LABELS = {
     "naive": "Naive current value",
     "country_mean": "Country historical mean",
     "country_ar1": "Country AR(1)",
+    "country_arima": "Country ARIMA(1,0,0)",
+    "country_arimax_ciss": "Country ARIMAX + CISS",
     "momentum": "Last-change extrapolation",
     "pooled_lag_ols": "Pooled lag OLS",
     "elastic_net": "Elastic Net",
@@ -42,7 +46,9 @@ FORECAST_MODEL_LABELS = {
     "gradient_boosting": "Gradient Boosting",
 }
 
-BASELINE_MODEL_KEYS = ["naive", "country_mean", "country_ar1", "momentum", "pooled_lag_ols"]
+SIMPLE_BASELINE_MODEL_KEYS = ["naive", "country_mean", "country_ar1", "momentum", "pooled_lag_ols"]
+TIME_SERIES_MODEL_KEYS = ["country_arima", "country_arimax_ciss"]
+BASELINE_MODEL_KEYS = SIMPLE_BASELINE_MODEL_KEYS + TIME_SERIES_MODEL_KEYS
 ML_MODEL_KEYS = ["elastic_net", "ridge", "random_forest", "gradient_boosting"]
 MODEL_SUITE_KEYS = BASELINE_MODEL_KEYS + ML_MODEL_KEYS
 
@@ -52,6 +58,8 @@ MODEL_FAMILIES = {
     "country_ar1": "baseline",
     "momentum": "baseline",
     "pooled_lag_ols": "baseline",
+    "country_arima": "time-series benchmark",
+    "country_arimax_ciss": "time-series benchmark",
     "elastic_net": "machine learning",
     "ridge": "machine learning",
     "random_forest": "machine learning",
@@ -66,6 +74,23 @@ COMPONENT_DRIVER_LABELS = {
     "z_bank_willingness_deteriorated": "Bank willingness deteriorated",
     "z_interest_rates_increased": "Interest rates increased",
 }
+
+PRESSURE_GROUPS = {
+    "availability_pressure_z": {
+        "label": "Access/availability pressure",
+        "columns": ["z_bank_loan_rejected", "z_bank_loan_limited_amount", "z_bank_willingness_deteriorated"],
+    },
+    "cost_pressure_z": {
+        "label": "Cost pressure",
+        "columns": ["z_bank_loan_cost_too_high", "z_interest_rates_increased"],
+    },
+    "salience_pressure_z": {
+        "label": "Finance salience",
+        "columns": ["z_access_finance_main_problem"],
+    },
+}
+
+PRESSURE_GROUP_LABELS = {key: value["label"] for key, value in PRESSURE_GROUPS.items()}
 
 ECB_OPTIONAL_SERIES = [
     {
@@ -146,6 +171,15 @@ def zscore(series: pd.Series) -> pd.Series:
     if std == 0 or np.isnan(std):
         return series * np.nan
     return (series - series.mean()) / std
+
+
+def add_pressure_groups(frame: pd.DataFrame) -> pd.DataFrame:
+    out = frame.copy()
+    for key, spec in PRESSURE_GROUPS.items():
+        cols = [col for col in spec["columns"] if col in out.columns]
+        if cols:
+            out[key] = out[cols].mean(axis=1, skipna=True)
+    return out
 
 
 def quarter_to_half_year(period: str) -> str | None:
@@ -415,6 +449,95 @@ def simple_baseline_feature_columns(frame: pd.DataFrame, target_col: str) -> lis
     return [col for col in candidates if col in frame.columns and pd.api.types.is_numeric_dtype(frame[col])]
 
 
+def time_series_features_used(model_key: str) -> int:
+    return 3 if model_key == "country_arimax_ciss" else 2
+
+
+def country_time_series_prediction(
+    model_key: str,
+    history: pd.DataFrame,
+    row: pd.Series,
+    fallback_value: float,
+) -> float:
+    """One-step benchmark using only target values observed by the forecast origin."""
+    history = history.dropna(subset=["target_next"]).sort_values("period_sort").copy()
+    if len(history) < 8 or history["target_next"].nunique() < 2:
+        return fallback_value
+
+    endog = pd.to_numeric(history["target_next"], errors="coerce")
+    if endog.isna().all():
+        return fallback_value
+    endog = endog.interpolate(limit_direction="both").ffill().bfill()
+    if endog.isna().any() or endog.nunique() < 2:
+        return fallback_value
+
+    exog = None
+    future_exog = None
+    if model_key == "country_arimax_ciss":
+        if "CISS_z" not in history.columns or pd.isna(row.get("CISS_z", np.nan)):
+            return fallback_value
+        exog_series = pd.to_numeric(history["CISS_z"], errors="coerce")
+        if exog_series.notna().sum() < 6:
+            return fallback_value
+        exog_series = exog_series.interpolate(limit_direction="both").ffill().bfill()
+        if exog_series.isna().any():
+            return fallback_value
+        exog = exog_series.to_frame("CISS_z")
+        future_exog = pd.DataFrame({"CISS_z": [float(row["CISS_z"])]})
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", StatsmodelsConvergenceWarning)
+            warnings.simplefilter("ignore", UserWarning)
+            warnings.simplefilter("ignore", FutureWarning)
+            model = SARIMAX(
+                endog,
+                exog=exog,
+                order=(1, 0, 0),
+                trend="c",
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            fit = model.fit(disp=False, maxiter=80)
+            forecast = fit.forecast(steps=1, exog=future_exog)
+    except Exception:
+        return fallback_value
+
+    value = float(forecast.iloc[0] if hasattr(forecast, "iloc") else forecast[0])
+    if not np.isfinite(value):
+        return fallback_value
+    return value
+
+
+def time_series_predictions(
+    model_key: str,
+    work: pd.DataFrame,
+    train_mask: pd.Series,
+    test_mask: pd.Series,
+    target_col: str,
+    y_train: pd.Series,
+) -> pd.Series:
+    test_index = work.index[test_mask]
+    fallback = work.loc[test_index, target_col].copy().fillna(float(y_train.mean()))
+    values = []
+    for idx, row in work.loc[test_index].iterrows():
+        country = row["REF_AREA"]
+        history_mask = train_mask & work["REF_AREA"].eq(country)
+        history_cols = ["period_sort", "target_next"]
+        if "CISS_z" in work.columns:
+            history_cols.append("CISS_z")
+        history = work.loc[history_mask, history_cols].copy()
+        values.append(
+            country_time_series_prediction(
+                model_key,
+                history,
+                row,
+                float(fallback.loc[idx]),
+            )
+        )
+    return pd.Series(values, index=test_index)
+
+
 def baseline_predictions(
     model_key: str,
     work: pd.DataFrame,
@@ -475,6 +598,8 @@ def baseline_predictions(
             model = make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LinearRegression())
             model.fit(X_train[usable_cols], y_train)
             pred = pd.Series(model.predict(X_test[usable_cols]), index=test_index)
+    elif model_key in TIME_SERIES_MODEL_KEYS:
+        pred = time_series_predictions(model_key, work, train_mask, test_mask, target_col, y_train)
     else:
         raise ValueError(f"Unknown baseline model: {model_key}")
 
@@ -506,6 +631,43 @@ def annotate_forecast_evaluation(metrics: pd.DataFrame) -> pd.DataFrame:
     out["beats_naive"] = out["mae_improvement_vs_naive"] > 0
     out["beats_strongest_baseline"] = out["mae_improvement_vs_strongest_baseline"] > 0
     return out
+
+
+def forecast_stability_stats(evaluation: pd.DataFrame) -> dict[str, object]:
+    if evaluation.empty:
+        return {}
+    required = {"origin_period_sort", "origin_period", "model_key", "model_label", "model_family", "mae"}
+    if not required.issubset(evaluation.columns):
+        return {}
+    best_by_origin = evaluation.loc[evaluation.groupby("origin_period_sort")["mae"].idxmin()].copy()
+    best_model_counts = best_by_origin["model_label"].value_counts()
+    best_family_counts = best_by_origin["model_family"].value_counts()
+    ml = (
+        evaluation[evaluation["model_key"].isin(ML_MODEL_KEYS)]
+        .groupby(["origin_period_sort", "origin_period"], as_index=False)["mae"]
+        .min()
+        .rename(columns={"mae": "best_ml_mae"})
+    )
+    baseline = (
+        evaluation[evaluation["model_key"].isin(BASELINE_MODEL_KEYS)]
+        .groupby(["origin_period_sort", "origin_period"], as_index=False)["mae"]
+        .min()
+        .rename(columns={"mae": "best_baseline_mae"})
+    )
+    comparison = ml.merge(baseline, on=["origin_period_sort", "origin_period"], how="inner")
+    if comparison.empty:
+        return {}
+    comparison["edge"] = comparison["best_baseline_mae"] - comparison["best_ml_mae"]
+    return {
+        "rolling_origin_count": int(len(comparison)),
+        "ml_beats_strongest_baseline_count": int((comparison["edge"] > 0).sum()),
+        "ml_beats_strongest_baseline_share": float((comparison["edge"] > 0).mean()),
+        "median_ml_edge_vs_strongest_baseline": float(comparison["edge"].median()),
+        "mean_ml_edge_vs_strongest_baseline": float(comparison["edge"].mean()),
+        "most_frequent_best_model": str(best_model_counts.index[0]) if not best_model_counts.empty else "",
+        "most_frequent_best_model_wins": int(best_model_counts.iloc[0]) if not best_model_counts.empty else 0,
+        "ml_family_best_origin_count": int(best_family_counts.get("machine learning", 0)),
+    }
 
 
 def evaluate_forecast_models(frame: pd.DataFrame, target_col: str) -> pd.DataFrame:
@@ -542,7 +704,12 @@ def evaluate_forecast_models(frame: pd.DataFrame, target_col: str) -> pd.DataFra
                 y_train,
                 simple_features,
             )
-            features_used = 1 if model_key != "pooled_lag_ols" else len(simple_features.columns)
+            if model_key in TIME_SERIES_MODEL_KEYS:
+                features_used = time_series_features_used(model_key)
+            elif model_key == "pooled_lag_ols":
+                features_used = len(simple_features.columns)
+            else:
+                features_used = 1
             rows.append(
                 forecast_metric_record(
                     test_period,
@@ -707,9 +874,46 @@ def confidence_label(model_agreement: float, forecast_range: float, components_a
     return "Low"
 
 
+def monitor_signal_type(row) -> str:
+    tier = str(getattr(row, "risk_tier", "Normal"))
+    current = getattr(row, "current_score", np.nan)
+    gap = getattr(row, "gap_value", np.nan)
+    delta = getattr(row, "best_model_delta", np.nan)
+    agreement = getattr(row, "ml_model_agreement_rising", np.nan)
+    hidden_signal = pd.notna(gap) and gap >= 0.35
+    visible_level = pd.notna(current) and current >= 0.35
+    rising_signal = pd.notna(delta) and delta >= 0.10
+    rising_agreement = pd.notna(agreement) and agreement >= 0.75 and pd.notna(delta) and delta >= 0
+
+    if tier in {"Alert", "Watch"}:
+        if hidden_signal and (rising_signal or rising_agreement):
+            return "High pressure + rising forecast"
+        if hidden_signal or visible_level:
+            return "Visible or hidden high pressure"
+        if rising_signal or rising_agreement:
+            return "Forward-looking warning"
+        return "Composite warning"
+    if tier == "Monitor":
+        if hidden_signal and (rising_signal or rising_agreement):
+            return "Mixed monitor"
+        if hidden_signal or visible_level:
+            return "Hidden-gap monitor"
+        if rising_signal or rising_agreement:
+            return "Rising-forecast monitor"
+        return "Single-signal monitor"
+    if hidden_signal:
+        return "Below-threshold hidden gap"
+    if rising_signal or rising_agreement:
+        return "Below-threshold rising signal"
+    return "Normal"
+
+
 def driver_text(row: pd.Series, latest_context: pd.DataFrame) -> str:
     drivers: list[tuple[float, str]] = []
     for col, label in COMPONENT_DRIVER_LABELS.items():
+        if col in row.index and pd.notna(row[col]):
+            drivers.append((float(row[col]), label))
+    for col, label in PRESSURE_GROUP_LABELS.items():
         if col in row.index and pd.notna(row[col]):
             drivers.append((float(row[col]), label))
     context_labels = {
@@ -822,6 +1026,8 @@ def build_decision_board(
         confidence_label(row.ml_model_agreement_rising, row.forecast_range, row.components_available)
         for row in board.itertuples()
     ]
+    board["agreement_quality"] = board["confidence"]
+    board["signal_type"] = [monitor_signal_type(row) for row in board.itertuples()]
     board["primary_drivers"] = board.apply(lambda row: driver_text(row, board), axis=1)
     board["recommended_read"] = np.select(
         [
@@ -832,7 +1038,7 @@ def build_decision_board(
         [
             "Immediate watchlist: inspect drivers and compare with local SME policy context.",
             "Watch closely: pressure is visible or forecast to rise.",
-            "Monitor: at least one warning signal is present.",
+            "Monitor: at least one warning signal is present; check its signal type.",
         ],
         default="Normal: no major warning signal in the current diagnostic rules.",
     )
@@ -845,6 +1051,8 @@ def build_decision_board(
         "risk_tier",
         "risk_score",
         "confidence",
+        "agreement_quality",
+        "signal_type",
         "current_score",
         "gap_value",
         "best_model_label",
@@ -863,6 +1071,9 @@ def build_decision_board(
         "ml_model_agreement_rising",
         "ml_model_count",
         "components_available",
+        "availability_pressure_z",
+        "cost_pressure_z",
+        "salience_pressure_z",
         "primary_drivers",
         "recommended_read",
     ]
@@ -1013,7 +1224,7 @@ def write_source_catalog(
 
 
 def build_forecasting_layer() -> None:
-    panel = pd.read_csv(PROCESSED_DIR / "sme_fpi_panel_v2.csv")
+    panel = add_pressure_groups(pd.read_csv(PROCESSED_DIR / "sme_fpi_panel_v2.csv"))
     external_validation = pd.read_csv(PROCESSED_DIR / "external_validation_panel.csv")
     micro = build_micro_features(panel)
     optional, optional_records = build_optional_external_features(panel)
@@ -1054,6 +1265,7 @@ def build_forecasting_layer() -> None:
         "PC2",
         "components_available",
         *Z_COMPONENTS,
+        *PRESSURE_GROUPS.keys(),
     ]
     extra_numeric = [
         col
@@ -1104,6 +1316,7 @@ def build_forecasting_layer() -> None:
     best_row = ml_recent.iloc[0] if not ml_recent.empty else recent_scores.iloc[0]
     score_lookup = recent_scores.set_index("model_key")
     strongest_baseline = recent_scores[recent_scores["model_key"].isin(BASELINE_MODEL_KEYS)].sort_values("recent_mae").iloc[0]
+    stability = forecast_stability_stats(evaluation)
 
     latest_origin = int(frame["period_sort"].max())
     all_predictions = build_all_forecast_predictions(frame, "SME_FPI_equal_z")
@@ -1154,6 +1367,7 @@ def build_forecasting_layer() -> None:
         "strongest_recent_baseline_label": strongest_baseline["model_label"],
         "strongest_recent_baseline_mae": strongest_baseline["recent_mae"],
         "best_recent_ml_improvement_vs_strongest_baseline": strongest_baseline["recent_mae"] - best_row["recent_mae"],
+        **stability,
         "latest_decision_board_rows": len(decision_board),
         "latest_decision_alert_count": int((decision_board["risk_tier"] == "Alert").sum()) if not decision_board.empty else 0,
         "latest_decision_watch_count": int((decision_board["risk_tier"] == "Watch").sum()) if not decision_board.empty else 0,
@@ -1161,6 +1375,12 @@ def build_forecasting_layer() -> None:
         "latest_backtest_naive_mae": score_lookup.loc["naive", "recent_mae"] if "naive" in score_lookup.index else np.nan,
         "latest_backtest_country_mean_mae": score_lookup.loc["country_mean", "recent_mae"] if "country_mean" in score_lookup.index else np.nan,
         "latest_backtest_country_ar1_mae": score_lookup.loc["country_ar1", "recent_mae"] if "country_ar1" in score_lookup.index else np.nan,
+        "latest_backtest_country_arima_mae": score_lookup.loc["country_arima", "recent_mae"] if "country_arima" in score_lookup.index else np.nan,
+        "latest_backtest_country_arimax_ciss_mae": (
+            score_lookup.loc["country_arimax_ciss", "recent_mae"]
+            if "country_arimax_ciss" in score_lookup.index
+            else np.nan
+        ),
         "latest_backtest_momentum_mae": score_lookup.loc["momentum", "recent_mae"] if "momentum" in score_lookup.index else np.nan,
         "latest_backtest_pooled_lag_ols_mae": score_lookup.loc["pooled_lag_ols", "recent_mae"] if "pooled_lag_ols" in score_lookup.index else np.nan,
         "latest_backtest_elastic_net_mae": score_lookup.loc["elastic_net", "recent_mae"] if "elastic_net" in score_lookup.index else np.nan,

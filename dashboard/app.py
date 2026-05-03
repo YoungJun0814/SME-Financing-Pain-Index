@@ -6,17 +6,21 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from dash import Dash, Input, Output, dcc, html, ctx
+from dash import Dash, Input, Output, State, dcc, html, ctx
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.exceptions import ConvergenceWarning
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import ElasticNetCV, LinearRegression, RidgeCV
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+from statsmodels.tools.sm_exceptions import ConvergenceWarning as StatsmodelsConvergenceWarning
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 
 BASE_DIR = Path(__file__).resolve().parents[1]
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 DATA_DIR = BASE_DIR / "data" / "processed"
+RAW_DIR = BASE_DIR / "data" / "raw"
 
 PANEL_PATH = DATA_DIR / "sme_fpi_panel_v2.csv"
 SEVERITY_PATH = DATA_DIR / "safe_problem_severity_cube.csv"
@@ -147,6 +151,8 @@ FORECAST_MODEL_LABELS = {
     "naive": "Naive current value",
     "country_mean": "Country historical mean",
     "country_ar1": "Country AR(1)",
+    "country_arima": "Country ARIMA(1,0,0)",
+    "country_arimax_ciss": "Country ARIMAX + CISS",
     "momentum": "Last-change extrapolation",
     "pooled_lag_ols": "Pooled lag OLS",
     "elastic_net": "Elastic Net",
@@ -155,7 +161,9 @@ FORECAST_MODEL_LABELS = {
     "gradient_boosting": "Gradient Boosting",
 }
 
-BASELINE_MODEL_KEYS = ["naive", "country_mean", "country_ar1", "momentum", "pooled_lag_ols"]
+SIMPLE_BASELINE_MODEL_KEYS = ["naive", "country_mean", "country_ar1", "momentum", "pooled_lag_ols"]
+TIME_SERIES_MODEL_KEYS = ["country_arima", "country_arimax_ciss"]
+BASELINE_MODEL_KEYS = SIMPLE_BASELINE_MODEL_KEYS + TIME_SERIES_MODEL_KEYS
 ML_MODEL_KEYS = ["elastic_net", "ridge", "random_forest", "gradient_boosting"]
 MODEL_FAMILIES = {
     "naive": "baseline",
@@ -163,6 +171,8 @@ MODEL_FAMILIES = {
     "country_ar1": "baseline",
     "momentum": "baseline",
     "pooled_lag_ols": "baseline",
+    "country_arima": "time-series benchmark",
+    "country_arimax_ciss": "time-series benchmark",
     "elastic_net": "machine learning",
     "ridge": "machine learning",
     "random_forest": "machine learning",
@@ -175,6 +185,91 @@ RISK_TIER_COLORS = {
     "Monitor": "#2f6f9f",
     "Normal": "#8b98a5",
 }
+
+QUICK_JUMP_TABS = {
+    "jump-start": "start",
+    "jump-board": "decision",
+    "jump-defense": "findings",
+    "jump-forecast": "forecast",
+    "jump-method": "methodology",
+    "jump-survey": "big-data",
+}
+
+LENS_PRIMARY_TABS = {
+    "first": "start",
+    "defense": "findings",
+    "forecast": "forecast",
+    "method": "methodology",
+}
+
+READING_PATH_STEPS = [
+    {
+        "number": "01",
+        "title": "Start Here",
+        "short": "Project claim",
+        "body": "Read the thesis, findings, and glossary first. This page is the project abstract.",
+        "why": "It gives the reader the claim before asking them to interpret technical charts.",
+        "outcome": "The reader can state the project claim without opening a technical tab.",
+        "target": "start",
+    },
+    {
+        "number": "02",
+        "title": "Current Board",
+        "short": "Latest signals",
+        "body": "See the latest countries that deserve attention, then read the reason and confidence level.",
+        "why": "It turns the index into a plain-language monitoring question: who needs attention now?",
+        "outcome": "The reader knows who is flagged and which evidence made the country visible.",
+        "target": "decision",
+    },
+    {
+        "number": "03",
+        "title": "Defense & Findings",
+        "short": "Grading answers",
+        "body": "Answer the four grading questions before moving into technical evidence.",
+        "why": "It proves the dashboard can defend data sufficiency, readability, visualization choice, and forecasting validity.",
+        "outcome": "The professor can find the direct answer to each evaluation question.",
+        "target": "findings",
+    },
+    {
+        "number": "04",
+        "title": "Index Basics",
+        "short": "What it measures",
+        "body": "Understand what SME-FPI measures and why it is borrower-side rather than market-side.",
+        "why": "It prevents the reader from confusing SME survey pressure with market stress.",
+        "outcome": "SME-FPI, CISS, Relative Gap, and H+1 are no longer unexplained acronyms.",
+        "target": "overview",
+    },
+    {
+        "number": "05",
+        "title": "Forecast",
+        "short": "H+1 validation",
+        "body": "Judge whether the H+1 forecast target, method, and error views are defensible.",
+        "why": "It frames forecasting as an early-warning diagnostic, not a deterministic prediction.",
+        "outcome": "Forecasting is read as a benchmarked validation layer, not the main result.",
+        "target": "forecast",
+    },
+    {
+        "number": "06",
+        "title": "Country Diagnosis",
+        "short": "Why flagged",
+        "body": "Explain why a country is flagged using drivers, gap, forecast direction, and model agreement.",
+        "why": "It connects the latest board to country-level evidence and avoids black-box labels.",
+        "outcome": "A country flag becomes an evidence bundle rather than a standalone label.",
+        "target": "diagnosis",
+    },
+    {
+        "number": "07",
+        "title": "Data & Method",
+        "short": "Audit trail",
+        "body": "Use the method and data pages to verify sources, robustness checks, and limits.",
+        "why": "It closes the report with source roles, model limits, and reproducibility evidence.",
+        "outcome": "The reader can separate core index data, forecast-only predictors, validation outputs, and raw sources.",
+        "target": "methodology",
+    },
+]
+
+READING_PATH_TABS = {f"read-path-{step['target']}": step["target"] for step in READING_PATH_STEPS}
+READING_PATH_LOOKUP = {step["target"]: step for step in READING_PATH_STEPS}
 
 COMPONENT_DRIVER_LABELS = {
     "z_access_finance_main_problem": "Access to finance",
@@ -190,13 +285,48 @@ DIAGNOSTIC_DRIVER_COLUMNS = {
     "gap_value": "SME-FPI minus CISS",
     "best_model_delta": "Best ML delta",
     "ml_model_agreement_rising": "ML rising agreement",
+    "availability_pressure_z": "Access/availability",
+    "cost_pressure_z": "Cost pressure",
+    "salience_pressure_z": "Finance salience",
 }
+
+PRESSURE_GROUPS = {
+    "availability_pressure_z": {
+        "label": "Access/availability pressure",
+        "short": "Availability",
+        "columns": ["z_bank_loan_rejected", "z_bank_loan_limited_amount", "z_bank_willingness_deteriorated"],
+        "description": "Loan rejection, limited amount, and weaker bank willingness.",
+    },
+    "cost_pressure_z": {
+        "label": "Cost pressure",
+        "short": "Cost",
+        "columns": ["z_bank_loan_cost_too_high", "z_interest_rates_increased"],
+        "description": "High loan cost and rising interest-rate pressure.",
+    },
+    "salience_pressure_z": {
+        "label": "Finance salience",
+        "short": "Salience",
+        "columns": ["z_access_finance_main_problem"],
+        "description": "Access to finance reported as the most pressing problem.",
+    },
+}
+
+PRESSURE_GROUP_LABELS = {key: value["label"] for key, value in PRESSURE_GROUPS.items()}
 
 
 def load_optional_csv(path, default):
     if path.exists():
         return pd.read_csv(path)
     return default.copy() if isinstance(default, pd.DataFrame) else default
+
+
+def add_pressure_groups(frame):
+    out = frame.copy()
+    for key, spec in PRESSURE_GROUPS.items():
+        columns = [col for col in spec["columns"] if col in out.columns]
+        if columns:
+            out[key] = out[columns].mean(axis=1, skipna=True)
+    return out
 
 
 def load_data():
@@ -217,6 +347,8 @@ def load_data():
     forecast_country_error = load_optional_csv(FORECAST_COUNTRY_ERROR_PATH, pd.DataFrame())
     risk_tier_validation = load_optional_csv(RISK_TIER_VALIDATION_PATH, pd.DataFrame())
 
+    panel = add_pressure_groups(panel)
+    forecast_panel = add_pressure_groups(forecast_panel)
     panel["iso3"] = panel["REF_AREA"].map(ISO3)
     panel["coverage_label"] = panel["components_available"].astype("Int64").astype(str) + " / 6 components"
     panel = panel.sort_values(["period_sort", "country_name"]).reset_index(drop=True)
@@ -306,6 +438,179 @@ SECTOR_OPTIONS = [
     {"label": row.sector_label, "value": row.FIRM_SECTOR}
     for row in SEVERITY[["FIRM_SECTOR", "sector_label"]].drop_duplicates().sort_values("sector_label").itertuples()
 ]
+
+DATASET_PREVIEWS = [
+    {
+        "key": "sme_fpi_panel_v2",
+        "label": "SME-FPI main panel",
+        "layer": "Core analytical panel",
+        "path": PANEL_PATH,
+        "purpose": "Country-half-year panel used for the main index, gap analysis, clusters, validation, and forecasting features.",
+        "rows": len(PANEL),
+    },
+    {
+        "key": "safe_component_long",
+        "label": "SAFE component long table",
+        "layer": "Core SAFE inputs",
+        "path": DATA_DIR / "safe_component_long.csv",
+        "purpose": "Long-form version of the six borrower-side SAFE components before they are combined into SME-FPI.",
+        "rows": 11300,
+    },
+    {
+        "key": "safe_problem_severity_cube",
+        "label": "SAFE problem-severity cube",
+        "layer": "Big Data diagnostic layer",
+        "path": SEVERITY_PATH,
+        "purpose": "Firm-size, sector, and problem-severity table used for firm-survey diagnostics and micro vulnerability features.",
+        "rows": len(SEVERITY),
+    },
+    {
+        "key": "safe_q0b_big_cube_slim",
+        "label": "SAFE Q0B response cube",
+        "layer": "Large survey-response cube",
+        "path": BIG_CUBE_PATH,
+        "purpose": "231,231 grouped survey-response cells by country, period, firm group, problem, and answer severity.",
+        "rows": BIG_CUBE_ROWS,
+    },
+    {
+        "key": "macro_context_panel",
+        "label": "World Bank macro context panel",
+        "layer": "Macro context",
+        "path": DATA_DIR / "macro_context_panel.csv",
+        "purpose": "Semiannual macro context used as forecasting predictors and validation context, not as SME-FPI Core.",
+        "rows": 386,
+    },
+    {
+        "key": "ciss_semiannual",
+        "label": "ECB CISS semiannual benchmark",
+        "layer": "Market-stress benchmark",
+        "path": DATA_DIR / "ciss_semiannual.csv",
+        "purpose": "ECB market-stress benchmark used for SME-FPI minus CISS gaps and external validation.",
+        "rows": 386,
+    },
+    {
+        "key": "forecasting_feature_panel",
+        "label": "Forecasting feature panel",
+        "layer": "Forecast feature stack",
+        "path": FORECAST_FEATURES_PATH,
+        "purpose": "Expanded model matrix combining SME-FPI, detailed SAFE survey slices, macro, BLS, MIR, Eurostat, and lagged information available at the forecast origin.",
+        "rows": len(FORECAST_PANEL),
+    },
+    {
+        "key": "forecasting_model_evaluation",
+        "label": "Rolling-origin model evaluation",
+        "layer": "Forecast validation",
+        "path": FORECAST_EVALUATION_PATH,
+        "purpose": "Backtest table comparing ML models with naive, country mean, AR(1), ARIMA/ARIMAX, momentum, and pooled lag OLS benchmarks.",
+        "rows": len(FORECAST_EVALUATION),
+    },
+    {
+        "key": "forecast_model_predictions_all_origins",
+        "label": "All rolling-origin predictions",
+        "layer": "Forecast validation",
+        "path": FORECAST_ALL_PREDICTIONS_PATH,
+        "purpose": "Country-model prediction table for every rolling-origin window, including ARIMA/ARIMAX benchmarks and ML forecasts.",
+        "rows": len(FORECAST_ALL_PREDICTIONS),
+    },
+    {
+        "key": "latest_forecast_model_predictions",
+        "label": "Latest forecast model predictions",
+        "layer": "Forecast output",
+        "path": LATEST_FORECAST_PREDICTIONS_PATH,
+        "purpose": "Latest country-level H+1 predictions by model, used by the current Forecast Check and Monitoring Board evidence.",
+        "rows": len(LATEST_FORECAST_PREDICTIONS),
+    },
+    {
+        "key": "decision_board_history",
+        "label": "Historical Monitoring Board",
+        "layer": "Risk-tier validation",
+        "path": FORECAST_DECISION_HISTORY_PATH,
+        "purpose": "Rolling-origin decision-board assignments used to check whether Alert, Watch, Monitor, and Normal tiers behave sensibly through time.",
+        "rows": len(FORECAST_DECISION_HISTORY),
+    },
+    {
+        "key": "risk_tier_validation",
+        "label": "Risk-tier validation summary",
+        "layer": "Risk-tier validation",
+        "path": RISK_TIER_VALIDATION_PATH,
+        "purpose": "Summary table comparing diagnostic tiers with next-period pressure movement and directional hit rates.",
+        "rows": len(RISK_TIER_VALIDATION),
+    },
+    {
+        "key": "forecasting_country_error",
+        "label": "Country forecast-error summary",
+        "layer": "Forecast validation",
+        "path": FORECAST_COUNTRY_ERROR_PATH,
+        "purpose": "Country-by-model error table used to show where forecasts are reliable or difficult.",
+        "rows": len(FORECAST_COUNTRY_ERROR),
+    },
+    {
+        "key": "raw_safe_access_finance_main_problem",
+        "label": "Raw SAFE access-finance series",
+        "layer": "Raw SAFE input",
+        "path": RAW_DIR / "safe_access_finance_main_problem.csv",
+        "purpose": "One of the six ECB SAFE borrower-side inputs used to construct the core index.",
+        "rows": None,
+    },
+    {
+        "key": "raw_safe_q0b_cube",
+        "label": "Raw SAFE Q0B cube",
+        "layer": "Raw SAFE response-detail source",
+        "path": RAW_DIR / "safe_q0b_pressingness_big_cube.csv",
+        "purpose": "Raw large response cube behind the processed Big Data diagnostic layer.",
+        "rows": None,
+    },
+    {
+        "key": "raw_worldbank_macro",
+        "label": "Raw World Bank macro data",
+        "layer": "Raw macro input",
+        "path": RAW_DIR / "worldbank_macro_annual.csv",
+        "purpose": "Annual macro indicators later aligned to the semiannual dashboard panel.",
+        "rows": None,
+    },
+    {
+        "key": "raw_ecb_ciss_daily",
+        "label": "Raw ECB CISS daily data",
+        "layer": "Raw market benchmark",
+        "path": RAW_DIR / "ecb_ciss_new_daily.csv",
+        "purpose": "Daily ECB CISS observations aggregated to the semiannual market-stress benchmark.",
+        "rows": None,
+    },
+    {
+        "key": "raw_bls_credit_standards",
+        "label": "Raw ECB BLS credit standards",
+        "layer": "Raw lender-side input",
+        "path": RAW_DIR / "forecast_bls_credit_standards_sme.csv",
+        "purpose": "Bank Lending Survey signal used only in the forecasting layer, not in SME-FPI Core.",
+        "rows": None,
+    },
+    {
+        "key": "raw_mir_small_loan_rate",
+        "label": "Raw ECB MIR small-loan rate",
+        "layer": "Raw loan-market input",
+        "path": RAW_DIR / "forecast_mir_small_loan_rate.csv",
+        "purpose": "Small-loan interest-rate series used only as a forecast predictor.",
+        "rows": None,
+    },
+    {
+        "key": "raw_eurostat_bankruptcies",
+        "label": "Raw Eurostat bankruptcies index",
+        "layer": "Raw business-demography input",
+        "path": RAW_DIR / "forecast_eurostat_bankruptcies_index.csv",
+        "purpose": "Business-demography stress context used only as a forecast predictor.",
+        "rows": None,
+    },
+    {
+        "key": "raw_eurostat_registrations",
+        "label": "Raw Eurostat registrations index",
+        "layer": "Raw business-demography input",
+        "path": RAW_DIR / "forecast_eurostat_registrations_index.csv",
+        "purpose": "Business-formation context used only as a forecast predictor.",
+        "rows": None,
+    },
+]
+DATASET_PREVIEW_LOOKUP = {item["key"]: item for item in DATASET_PREVIEWS}
+DATASET_ROW_OPTIONS = [{"label": f"First {n} rows", "value": n} for n in [5, 10, 20, 50]]
 
 
 def period_filter(df, period_range):
@@ -413,6 +718,8 @@ def empty_figure(message):
         template="plotly_white",
         height=360,
         margin={"l": 30, "r": 30, "t": 30, "b": 30},
+        paper_bgcolor="rgba(255,255,255,0)",
+        plot_bgcolor="rgba(255,255,255,0)",
         xaxis={"visible": False},
         yaxis={"visible": False},
     )
@@ -427,8 +734,13 @@ def polish(fig, title, height=430, y_title=None, x_title=None, showlegend=True):
         margin={"l": 54, "r": 28, "t": 126, "b": 70},
         font={"family": "Inter, Segoe UI, Arial, sans-serif", "size": 12, "color": "#1f2933"},
         paper_bgcolor="rgba(255,255,255,0)",
-        plot_bgcolor="rgba(255,255,255,0.72)",
-        hoverlabel={"bgcolor": "white", "font_size": 12, "font_family": "Inter, Segoe UI, Arial, sans-serif"},
+        plot_bgcolor="rgba(255,255,255,0.42)",
+        hoverlabel={
+            "bgcolor": "rgba(255,255,255,0.96)",
+            "bordercolor": "rgba(184,200,213,0.86)",
+            "font_size": 12,
+            "font_family": "Inter, Segoe UI, Arial, sans-serif",
+        },
         legend={"orientation": "h", "yanchor": "top", "y": -0.16, "xanchor": "left", "x": 0},
         legend_title_text="",
         showlegend=showlegend,
@@ -436,16 +748,16 @@ def polish(fig, title, height=430, y_title=None, x_title=None, showlegend=True):
     fig.update_xaxes(
         title=x_title,
         showgrid=True,
-        gridcolor="#edf1f4",
-        zerolinecolor="#b8c2cc",
-        linecolor="#d4dce3",
+        gridcolor="rgba(183, 199, 212, 0.34)",
+        zerolinecolor="rgba(139, 152, 165, 0.72)",
+        linecolor="rgba(184, 200, 213, 0.70)",
     )
     fig.update_yaxes(
         title=y_title,
         showgrid=True,
-        gridcolor="#edf1f4",
-        zerolinecolor="#b8c2cc",
-        linecolor="#d4dce3",
+        gridcolor="rgba(183, 199, 212, 0.34)",
+        zerolinecolor="rgba(139, 152, 165, 0.72)",
+        linecolor="rgba(184, 200, 213, 0.70)",
     )
     return fig
 
@@ -461,14 +773,71 @@ def chart_title(headline, subtitle):
     )
 
 
+def compact_text(text, limit=118):
+    text = str(text)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rsplit(" ", 1)[0] + "..."
+
+
+def compact_bullet(label, text, limit=118):
+    return html.Li([html.Strong(label), html.Span(compact_text(text, limit))])
+
+
+def visual_bullets(items, className="visual-bullet-row"):
+    return html.Ul(className=className, children=[html.Li(item) for item in items])
+
+
+def compact_copy_bullets(items, className="compact-copy-list", limit=138):
+    children = []
+    for item in items:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            children.append(compact_bullet(item[0], item[1], limit))
+        else:
+            children.append(html.Li(compact_text(item, limit)))
+    return html.Ul(className=className, children=children)
+
+
+def compact_summary_panel(kicker, title, bullets, detail=None, className="", accent="blue"):
+    panel_class = f"compact-summary-panel compact-summary-{accent} {className}".strip()
+    children = [
+        html.Span(kicker, className="panel-kicker"),
+        html.H3(title),
+        visual_bullets(bullets),
+    ]
+    if detail:
+        children.append(
+            html.Details(
+                className="compact-summary-detail",
+                children=[
+                    html.Summary("Details"),
+                    compact_copy_bullets(detail, className="compact-copy-list compact-copy-list-detail", limit=150),
+                ],
+            )
+        )
+    return html.Div(className=panel_class, children=children)
+
+
 def explanation(title, what, why, insight):
     return html.Div(
         className="explanation",
         children=[
             html.H4(title),
-            html.P([html.Strong("What it shows: "), what]),
-            html.P([html.Strong("Why this chart: "), why]),
-            html.P([html.Strong("Key insight: "), insight]),
+            html.Ul(
+                className="compact-guide-list",
+                children=[
+                    compact_bullet("Shows", what),
+                    compact_bullet("Read", why),
+                    compact_bullet("Takeaway", insight),
+                ],
+            ),
+            html.Details(
+                className="compact-note",
+                children=[
+                    html.Summary("Caution"),
+                    html.P("Do not read this chart alone as causal proof, a crisis guarantee, or a production forecast."),
+                ],
+            ),
         ],
     )
 
@@ -490,7 +859,56 @@ def concept_card(title, tag, body):
         children=[
             html.Span(tag, className="concept-tag"),
             html.H3(title),
-            html.P(body),
+            html.P(compact_text(body, 118)),
+        ],
+    )
+
+
+def tab_guide(question, takeaway, caveat):
+    return html.Div(
+        className="tab-guide",
+        children=[
+            html.Div(className="tab-guide-card tab-guide-question", children=[html.Span("Question"), html.Strong(question)]),
+            html.Div(className="tab-guide-card tab-guide-takeaway", children=[html.Span("Takeaway"), html.Strong(compact_text(takeaway, 132))]),
+            html.Div(className="tab-guide-card tab-guide-caveat", children=[html.Span("Caution"), html.Strong(compact_text(caveat, 132))]),
+        ],
+    )
+
+
+def reader_checkpoint(question, answer, interpretation, caution):
+    items = [
+        ("01", "Question", question, "question"),
+        ("02", "Answer", answer, "answer"),
+        ("03", "Read", interpretation, "read"),
+        ("04", "Caution", caution, "caution"),
+    ]
+    return html.Div(
+        className="rc-grid",
+        children=[
+            html.Div(
+                className=f"rc-card rc-card-{tone}",
+                children=[
+                    html.Div(
+                        className="rc-card-head",
+                        children=[
+                            html.Span(number, className="rc-number"),
+                            html.Span(label, className="rc-label"),
+                        ],
+                    ),
+                    html.P(compact_text(text, 168), className="rc-body"),
+                ],
+            )
+            for number, label, text, tone in items
+        ],
+    )
+
+
+def evidence_card(number, title, tag, body):
+    return html.Div(
+        className="evidence-card",
+        children=[
+            html.Span(number, className="evidence-number"),
+            html.Div(children=[html.Span(tag, className="concept-tag"), html.H3(title), html.P(compact_text(body, 126))]),
         ],
     )
 
@@ -504,7 +922,7 @@ def pipeline_step(number, title, tag, body):
                 children=[
                     html.Span(tag, className="pipeline-tag"),
                     html.H3(title),
-                    html.P(body),
+                    html.P(compact_text(body, 118)),
                 ]
             ),
         ],
@@ -520,15 +938,29 @@ def source_status_class(status):
     return "source-status source-status--ready"
 
 
-def source_catalog_table(limit=None):
+def source_role_options():
+    if SOURCE_CATALOG.empty or "role" not in SOURCE_CATALOG.columns:
+        return [{"label": "All roles", "value": "all"}]
+    roles = sorted(SOURCE_CATALOG["role"].dropna().astype(str).unique())
+    return [{"label": "All roles", "value": "all"}] + [{"label": role, "value": role} for role in roles]
+
+
+def source_catalog_table(limit=None, role_filter=None):
     if SOURCE_CATALOG.empty:
         return html.Div(
             className="source-table-empty",
             children="Source catalog is not available. Run scripts/11_build_forecasting_layer.py to generate it.",
         )
     frame = SOURCE_CATALOG.copy()
+    if role_filter and role_filter != "all" and "role" in frame.columns:
+        frame = frame[frame["role"].astype(str).eq(str(role_filter))].copy()
     if limit:
         frame = frame.head(limit)
+    if frame.empty:
+        return html.Div(
+            className="source-table-empty",
+            children="No source rows match this role filter.",
+        )
     rows = []
     for row in frame.itertuples():
         rows.append(
@@ -566,6 +998,829 @@ def source_catalog_table(limit=None):
     )
 
 
+def forecast_stability_stats():
+    if FORECAST_EVALUATION.empty or "model_key" not in FORECAST_EVALUATION.columns:
+        return {}
+    evaluation = FORECAST_EVALUATION.copy()
+    if "model_family" not in evaluation.columns:
+        evaluation["model_family"] = evaluation["model_key"].map(MODEL_FAMILIES).fillna("model")
+    required = {"origin_period_sort", "origin_period", "model_key", "model_label", "model_family", "mae"}
+    if not required.issubset(evaluation.columns):
+        return {}
+
+    best_by_origin = evaluation.loc[evaluation.groupby("origin_period_sort")["mae"].idxmin()].copy()
+    best_model_counts = best_by_origin["model_label"].value_counts()
+    best_family_counts = best_by_origin["model_family"].value_counts()
+
+    ml = (
+        evaluation[evaluation["model_key"].isin(ML_MODEL_KEYS)]
+        .groupby(["origin_period_sort", "origin_period"], as_index=False)["mae"]
+        .min()
+        .rename(columns={"mae": "best_ml_mae"})
+    )
+    baseline = (
+        evaluation[evaluation["model_key"].isin(BASELINE_MODEL_KEYS)]
+        .groupby(["origin_period_sort", "origin_period"], as_index=False)["mae"]
+        .min()
+        .rename(columns={"mae": "best_baseline_mae"})
+    )
+    comparison = ml.merge(baseline, on=["origin_period_sort", "origin_period"], how="inner")
+    if comparison.empty:
+        return {}
+    comparison["edge"] = comparison["best_baseline_mae"] - comparison["best_ml_mae"]
+    top_model = best_model_counts.index[0] if not best_model_counts.empty else "n/a"
+    top_model_wins = int(best_model_counts.iloc[0]) if not best_model_counts.empty else 0
+    ml_family_wins = int(best_family_counts.get("machine learning", 0))
+    return {
+        "n_origins": int(len(comparison)),
+        "ml_wins": int((comparison["edge"] > 0).sum()),
+        "ml_win_share": float((comparison["edge"] > 0).mean()),
+        "median_edge": float(comparison["edge"].median()),
+        "mean_edge": float(comparison["edge"].mean()),
+        "top_model": str(top_model),
+        "top_model_wins": top_model_wins,
+        "ml_family_wins": ml_family_wins,
+    }
+
+
+def edge_strength_label(edge):
+    if pd.isna(edge):
+        return "unknown"
+    if edge < 0.01:
+        return "weak"
+    if edge < 0.05:
+        return "modest"
+    return "meaningful"
+
+
+def safe_int(value, default=0):
+    if pd.isna(value):
+        return default
+    return int(value)
+
+
+def defense_evidence_item(text):
+    return html.Li(text)
+
+
+def defense_card(number, question, verdict, answer, evidence, caveat, tone="solid", inspect=None):
+    return html.Div(
+        className=f"defense-card defense-card-{tone}",
+        children=[
+            html.Div(
+                className="defense-card-head",
+                children=[
+                    html.Span(number, className="defense-number"),
+                    html.Span(verdict, className=f"defense-verdict defense-verdict-{tone}"),
+                ],
+            ),
+            html.H3(question),
+            html.P(compact_text(answer, 150), className="defense-answer"),
+            html.Ul(
+                className="defense-evidence-list",
+                children=[defense_evidence_item(compact_text(item, 112)) for item in evidence],
+            ),
+            html.Div(
+                className="defense-inspect",
+                children=[
+                    html.Strong("Where to inspect"),
+                    html.Span(compact_text(inspect or "Use the recommended reading path and linked evidence tabs.", 104)),
+                ],
+            ),
+            html.Div(
+                className="defense-caveat",
+                children=[html.Strong("Boundary"), html.Span(compact_text(caveat, 118))],
+            ),
+        ],
+    )
+
+
+def defense_question_panel():
+    summary = FORECAST_SUMMARY.iloc[0] if not FORECAST_SUMMARY.empty else pd.Series(dtype=object)
+    source_rows = len(SOURCE_CATALOG) if not SOURCE_CATALOG.empty else len(DATASET_PREVIEWS)
+    implemented_sources = (
+        int(SOURCE_CATALOG["status"].astype(str).str.lower().eq("implemented").sum())
+        if not SOURCE_CATALOG.empty and "status" in SOURCE_CATALOG.columns
+        else source_rows
+    )
+    data_roles = (
+        int(SOURCE_CATALOG["role"].dropna().astype(str).nunique())
+        if not SOURCE_CATALOG.empty and "role" in SOURCE_CATALOG.columns
+        else 0
+    )
+    countries = PANEL["REF_AREA"].nunique()
+    periods = PANEL["TIME_PERIOD"].nunique()
+    forecast_columns = safe_int(summary.get("columns_forecasting_feature_panel", len(FORECAST_PANEL.columns)))
+    macro_micro = safe_int(summary.get("macro_micro_predictor_columns", 0))
+    optional_external = safe_int(summary.get("optional_external_predictor_columns", 0))
+    rolling_origins = safe_int(summary.get("rolling_origin_count", 0))
+    ml_wins = safe_int(summary.get("ml_beats_strongest_baseline_count", 0))
+    ml_win_share = summary.get("ml_beats_strongest_baseline_share", np.nan)
+    best_model = summary.get("best_recent_model_label", "best recent model")
+    strongest_baseline = summary.get("strongest_recent_baseline_label", "strongest benchmark")
+    ml_edge = summary.get("best_recent_ml_improvement_vs_strongest_baseline", np.nan)
+
+    return html.Div(
+        className="defense-panel",
+        children=[
+            html.Div(
+                className="defense-panel-copy",
+                children=[
+                    html.Span("Defense questions", className="panel-kicker"),
+                    html.H3("Four grading questions"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[
+                            html.Li("Data sufficiency"),
+                            html.Li("Non-specialist readability"),
+                            html.Li("Visualization fit"),
+                            html.Li("Forecast defensibility"),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="defense-grid",
+                children=[
+                    defense_card(
+                        "01",
+                        "Did we use enough datasets for the objective?",
+                        "Yes, for a diagnostic monitoring objective",
+                        (
+                            f"The core evidence uses {countries} countries across {periods} half-year periods, "
+                            f"a {len(PANEL):,}-row SME-FPI panel, the {BIG_CUBE_ROWS:,}-row SAFE response cube, "
+                            f"and {implemented_sources} implemented source layers covering {data_roles} roles."
+                        ),
+                        [
+                            "SME-FPI Core stays borrower-side, so the main target is not diluted by unrelated macro variables.",
+                            f"The forecast feature panel has {forecast_columns:,} columns, including {macro_micro} macro/micro and {optional_external} optional external predictor columns.",
+                            "CISS, World Bank, BLS, MIR, Eurostat, validation, and forecast outputs are separated by role in Data & Method.",
+                        ],
+                        "Sufficient for descriptive diagnosis and H+1 early-warning checks; not sufficient for causal policy evaluation or firm-level default scoring.",
+                        "solid",
+                        "Data & Method: role taxonomy, source catalog, data lineage map, and raw/processed preview.",
+                    ),
+                    defense_card(
+                        "02",
+                        "Can a non-specialist understand it at a glance?",
+                        "Mostly yes, by starting from the board",
+                        (
+                            "The first screen now answers who needs attention, why the country is flagged, "
+                            "whether CISS misses the borrower-side signal, and how confident the model agreement is."
+                        ),
+                        [
+                            "Current Board is the default tab and uses Alert, Watch, Monitor, Normal labels instead of raw model output.",
+                            "Every major tab starts with a plain-English question, takeaway, and caveat.",
+                            "Glossary, reading path, and figure notes explain SAFE, CISS, SME-FPI, H+1, MAE, and model agreement in context.",
+                        ],
+                        "Expert tabs remain available, but they are secondary drill-down layers rather than the first reading path.",
+                        "solid",
+                        "Start Here: glossary and five-minute path; Current Board: country cards and chart captions.",
+                    ),
+                    defense_card(
+                        "03",
+                        "Are the visualizations appropriate?",
+                        "Yes, chart types match the analytical tasks",
+                        (
+                            "The redesign uses a monitoring board for triage, ranked bars for comparison, heatmaps for country-period matrices, "
+                            "scatter/dumbbell views for diagnosis and uncertainty, and tables for auditability."
+                        ),
+                        [
+                            "Heatmaps are used only when both country and period or component dimensions matter.",
+                            "Forecast charts show loss, benchmark dominance, rank stability, and country error instead of only a single projection.",
+                            "Choropleth/map-style views are contextual; the main decisions are carried by readable board, rank, and validation views.",
+                        ],
+                        "The dashboard avoids decorative chart variety; every figure needs to answer a specific reader question.",
+                        "solid",
+                        "Current Board, Borrower-Market Gap, Trend Explorer, PCA Analysis, and Firm Survey Detail chart notes.",
+                    ),
+                    defense_card(
+                        "04",
+                        "Is the forecasting target and method defensible?",
+                        "Yes, with modest claims",
+                        (
+                            "The target is next-half-year SME-FPI because the project is about early warning for borrower-side SME financing pain, "
+                            "not predicting market stress or firm defaults."
+                        ),
+                        [
+                            f"The model suite is tested over {rolling_origins} rolling origins; ML beats the strongest benchmark {ml_wins} times ({format_number(ml_win_share * 100 if pd.notna(ml_win_share) else np.nan, 0)}%).",
+                            f"The latest best model is {best_model}, but it is compared against {strongest_baseline}; the latest ML edge is {format_number(ml_edge, 3)} ({edge_strength_label(ml_edge)}).",
+                            "Naive, country mean, AR(1), ARIMA/ARIMAX, momentum, and pooled lag OLS keep the ML results theoretically honest for a short semiannual panel.",
+                        ],
+                        "The forecast supports monitoring and prioritization; it should not be presented as deterministic prediction or production credit risk.",
+                        "watch",
+                        "Forecast & Validation: audit card, rolling-origin loss, benchmark dominance, rank stability, and country error.",
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+def forecast_defense_panel():
+    summary = FORECAST_SUMMARY.iloc[0] if not FORECAST_SUMMARY.empty else pd.Series(dtype=object)
+    best_model = summary.get("best_recent_model_label", "best recent model")
+    best_mae = summary.get("best_recent_model_mae", np.nan)
+    strongest_baseline = summary.get("strongest_recent_baseline_label", "strongest benchmark")
+    baseline_mae = summary.get("strongest_recent_baseline_mae", np.nan)
+    rolling_origins = safe_int(summary.get("rolling_origin_count", 0))
+    rows = safe_int(summary.get("rows_forecasting_feature_panel", len(FORECAST_PANEL)))
+
+    checks = [
+        (
+            "Target",
+            "Next half-year SME-FPI",
+            "The target matches the project question: can current borrower-side and context signals warn about later SME financing pain?",
+        ),
+        (
+            "Method",
+            "Rolling-origin comparison",
+            f"{rolling_origins} pseudo-real-time origins compare {best_model} with naive, AR(1), ARIMA/ARIMAX, momentum, pooled OLS, and regularized/tree ML.",
+        ),
+        (
+            "Visualization",
+            "Loss, benchmark, stability",
+            f"The reader sees MAE/RMSE, country error, benchmark dominance, and rank stability; latest MAE is {format_number(best_mae)} vs {format_number(baseline_mae)} for {strongest_baseline}.",
+        ),
+        (
+            "Sample discipline",
+            f"{rows:,} country-period rows",
+            "The dashboard favors compact regularized models and simple time-series benchmarks because each country has a short semiannual history.",
+        ),
+    ]
+    return html.Div(
+        className="forecast-defense-panel",
+        children=[
+            html.Div(
+                className="forecast-defense-copy",
+                children=[
+                    html.Span("Forecast defense", className="panel-kicker"),
+                    html.H3("Why the forecast is only an early-warning check"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[
+                            html.Li("H+1 target"),
+                            html.Li("Rolling-origin validation"),
+                            html.Li("Strong baselines"),
+                            html.Li("Visible uncertainty"),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="forecast-defense-grid",
+                children=[
+                    html.Div(
+                        className="forecast-defense-card",
+                        children=[html.Span(tag), html.Strong(title), html.P(compact_text(body, 120))],
+                    )
+                    for tag, title, body in checks
+                ],
+            ),
+        ],
+    )
+
+
+def forecast_audit_card():
+    summary = FORECAST_SUMMARY.iloc[0] if not FORECAST_SUMMARY.empty else pd.Series(dtype=object)
+    best_model = summary.get("best_recent_model_label", "best recent ML model")
+    best_mae = summary.get("best_recent_model_mae", np.nan)
+    strongest_baseline = summary.get("strongest_recent_baseline_label", "strongest benchmark")
+    baseline_mae = summary.get("strongest_recent_baseline_mae", np.nan)
+    checks = [
+        ("Target", "H+1 SME-FPI", "Next-half-year borrower-side financing pain."),
+        ("Horizon", "one half-year ahead", "The target period is the next semiannual SAFE observation."),
+        ("Validation", "rolling-origin out-of-sample", "Each origin mimics information available before the target period."),
+        ("Leakage control", "future targets excluded", "Future and target columns are blocked from feature selection."),
+        ("Benchmarks", "naive, mean, AR(1), ARIMA/ARIMAX, momentum, pooled OLS", "ML has to beat simple and compact time-series alternatives."),
+        ("Models", "Elastic Net, Ridge, Random Forest, Gradient Boosting", "Compact models fit the short country-half-year panel better than oversized neural networks."),
+        ("Metrics", "MAE and RMSE", f"Recent best: {best_model} MAE {format_number(best_mae)} vs {strongest_baseline} {format_number(baseline_mae)}."),
+        ("Interpretation", "early-warning diagnostic", "Model agreement is consistency evidence, not certainty."),
+    ]
+    return html.Div(
+        className="forecast-audit-panel",
+        children=[
+            html.Div(
+                className="forecast-audit-copy",
+                children=[
+                    html.Span("Forecast audit card", className="panel-kicker"),
+                    html.H3("H+1 validation layer"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[html.Li("not the main claim"), html.Li("benchmarked"), html.Li("leakage controlled"), html.Li("not deterministic")],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="forecast-audit-grid",
+                children=[
+                    html.Div(
+                        className="forecast-audit-item",
+                        children=[html.Span(label), html.Strong(value), html.P(compact_text(note, 118))],
+                    )
+                    for label, value, note in checks
+                ],
+            ),
+        ],
+    )
+
+
+def forecast_view_selector():
+    return html.Div(
+        className="forecast-view-control",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Forecast view", className="panel-kicker"),
+                    html.H3("Read benchmark evidence first"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[html.Li("benchmark"), html.Li("uncertainty"), html.Li("point forecast")],
+                    ),
+                ],
+            ),
+            dcc.RadioItems(
+                id="forecast-view-select",
+                value="benchmark",
+                options=[
+                    {"label": "Benchmark comparison", "value": "benchmark"},
+                    {"label": "Uncertainty range", "value": "uncertainty"},
+                    {"label": "Point forecast", "value": "point"},
+                ],
+                className="forecast-view-segmented",
+                inputClassName="forecast-view-input",
+                labelClassName="forecast-view-label",
+            ),
+        ],
+    )
+
+
+def forecast_view_styles(selected):
+    selected = selected or "benchmark"
+    hidden = {"display": "none"}
+    visible = {"display": "block"}
+    return (
+        visible if selected == "point" else hidden,
+        visible if selected == "uncertainty" else hidden,
+        visible if selected == "benchmark" else hidden,
+    )
+
+
+def data_role_taxonomy_panel():
+    roles = [
+        ("Core index", "SME-FPI formula inputs", "Six borrower-side SAFE components. These are the only ingredients that directly build the core index."),
+        ("Diagnostic detail", "explanation layer", "Firm-size, sector, and problem-severity survey slices explain who feels pressure."),
+        ("Market benchmark", "comparison object", "ECB CISS is used to compare borrower-side pain with financial-market stress."),
+        ("Forecast-only predictors", "H+1 model features", "BLS, MIR, Eurostat, macro, and detailed survey features support forecasting only."),
+        ("Validation targets", "future checks", "H+1 and H+2 future outcomes test whether current signals align with later stress."),
+        ("Raw source", "audit trail", "Raw SAFE, CISS, BLS, MIR, Eurostat, macro, and generated files keep the work inspectable."),
+    ]
+    return html.Div(
+        className="role-taxonomy-panel",
+        children=[
+            html.Div(
+                className="role-taxonomy-copy",
+                children=[
+                    html.Span("Data role taxonomy", className="panel-kicker"),
+                    html.H3("Core index vs forecast-only predictors"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[html.Li("6 SAFE core inputs"), html.Li("CISS benchmark"), html.Li("external predictors"), html.Li("validation outputs")],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="role-taxonomy-grid",
+                children=[concept_card(title, tag, body) for title, tag, body in roles],
+            ),
+        ],
+    )
+
+
+def data_lineage_map():
+    steps = [
+        ("01", "Raw SAFE survey components", "source", "Borrower-side survey answers and grouped response detail."),
+        ("02", "Standardized component panel", "core", "Country-half-year z-scores, coverage checks, and pressure families."),
+        ("03", "SME-FPI index variants", "index", "Equal, fixed-baseline, PCA-weighted, and reliability-weighted versions."),
+        ("04", "SME-FPI minus CISS gap", "benchmark", "Borrower-side pressure compared with market-stress context."),
+        ("05", "Forecast feature panel", "validation", "Forecast-only predictors and H+1/H+2 targets stay outside the core formula."),
+        ("06", "Monitoring board", "product", "Country flags, diagnosis cards, validation charts, and audit trail."),
+    ]
+    return html.Div(
+        className="data-lineage-panel",
+        children=[
+            html.Div(
+                className="data-lineage-copy",
+                children=[
+                    html.Span("Data lineage map", className="panel-kicker"),
+                    html.H3("Raw source -> processed panel -> index -> validation output"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[html.Li("source"), html.Li("panel"), html.Li("index"), html.Li("board")],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="data-lineage-track",
+                children=[
+                    html.Div(
+                        className="data-lineage-node",
+                        children=[
+                            html.Span(number),
+                            html.Strong(title),
+                            html.Small(tag),
+                            html.P(compact_text(body, 112)),
+                        ],
+                    )
+                    for number, title, tag, body in steps
+                ],
+            ),
+        ],
+    )
+
+
+def claim_evidence_matrix():
+    rows = [
+        (
+            "SME borrower pain can diverge from market stress",
+            "SME-FPI minus CISS gap",
+            "Borrower-Market Gap / Current Board",
+            "diagnostic, not causal",
+        ),
+        (
+            "The index is not one arbitrary weighting choice",
+            "equal, fixed-baseline, PCA-weighted, and reliability-weighted checks",
+            "Index Basics / PCA Analysis",
+            "small semiannual panel",
+        ),
+        (
+            "Forecasting is useful only as early warning",
+            "rolling-origin benchmark comparison and country error",
+            "Forecast & Validation",
+            "modest gains, no deterministic prediction",
+        ),
+        (
+            "Country flags are explainable",
+            "drivers, relative gap, forecast direction, and model agreement",
+            "Current Board / Country Diagnosis",
+            "monitoring tier, not policy verdict",
+        ),
+    ]
+    return html.Div(
+        className="claim-evidence-panel",
+        children=[
+            html.Div(
+                className="source-catalog-copy",
+                children=[
+                    html.Span("Claim-to-evidence matrix", className="panel-kicker"),
+                    html.H3("Claim -> evidence -> location -> limit"),
+                ],
+            ),
+            html.Div(
+                className="claim-evidence-card-grid",
+                children=[
+                    html.Div(
+                        className="claim-evidence-card",
+                        children=[
+                            html.H4(claim),
+                            compact_copy_bullets(
+                                [
+                                    ("Evidence", evidence),
+                                    ("Where", location),
+                                    ("Limit", limit),
+                                ],
+                                className="compact-guide-list claim-evidence-card-list",
+                                limit=118,
+                            ),
+                        ],
+                    )
+                    for claim, evidence, location, limit in rows
+                ],
+            ),
+        ],
+    )
+
+
+def research_value_panel():
+    research_questions = [
+        "Can SME-FPI predict later credit tightening better than market stress alone?",
+        "Which borrower-pressure components lead or lag CISS?",
+        "Are positive borrower-market gaps concentrated in particular country groups?",
+        "Do firm-size and sector slices explain country-level monitoring flags?",
+        "How would results change with stricter publication-lag alignment?",
+        "Can this framework support a policy dashboard without making causal claims?",
+    ]
+    practical_values = [
+        "early warning for SME financing stress",
+        "country monitoring prioritization",
+        "borrower-side complement to financial-market stress indicators",
+        "dashboard for analyst briefings",
+        "diagnostic support for policy discussion, not policy automation",
+    ]
+    return html.Div(
+        className="research-value-panel",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Research extension", className="panel-kicker"),
+                    html.H3("What a world-class expert can do next"),
+                    html.Ul(children=[html.Li(item) for item in research_questions]),
+                ],
+            ),
+            html.Div(
+                children=[
+                    html.Span("Practical value", className="panel-kicker"),
+                    html.H3("Why the dashboard has monitoring value"),
+                    html.Ul(children=[html.Li(item) for item in practical_values]),
+                ],
+            ),
+        ],
+    )
+
+
+def pca_answer_panel():
+    return html.Div(
+        className="pca-answer-panel",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("What PCA answers", className="panel-kicker"),
+                    html.H3("Structure and robustness check"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[html.Li("component co-movement"), html.Li("weighting robustness"), html.Li("similarity only"), html.Li("not causal")],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="pca-answer-grid",
+                children=[
+                    concept_card("PC1 loadings", "weighting check", "Components loading together support the idea that equal-weight SME-FPI is not arbitrary."),
+                    concept_card("Component circle", "co-movement", "Arrows pointing in similar directions mean components tend to move together."),
+                    concept_card("Scatter distance", "similarity only", "Nearby points are similar in component structure; distance does not imply causality."),
+                    concept_card("Descriptive groups", "not classes", "Groups summarize observed patterns; they are not supervised predictions or causal regimes."),
+                ],
+            ),
+        ],
+    )
+
+
+def firm_survey_pressure_panel():
+    return html.Div(
+        className="survey-pressure-panel",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Who feels pressure?", className="panel-kicker"),
+                    html.H3("Grouped SAFE survey-response detail"),
+                    html.Ul(
+                        className="visual-bullet-row",
+                        children=[html.Li("explains flags"), html.Li("firm groups"), html.Li("problem severity"), html.Li("not core formula")],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="survey-chip-row",
+                children=[
+                    html.Span("firm size"),
+                    html.Span("sector"),
+                    html.Span("problem severity"),
+                    html.Span("top-box share"),
+                    html.Span("high-pressure share"),
+                ],
+            ),
+        ],
+    )
+
+
+def lens_route_step(number, title, body):
+    return html.Div(
+        className="lens-route-step",
+        children=[
+            html.Span(number),
+            html.Div(children=[html.Strong(title), html.P(compact_text(body, 118))]),
+        ],
+    )
+
+
+def lens_signal_card(label, value, note):
+    return html.Div(
+        className="lens-signal-card",
+        children=[
+            html.Span(label),
+            html.Strong(value),
+            html.Small(note),
+        ],
+    )
+
+
+def reader_lens_panel(mode):
+    mode = mode or "first"
+    summary = FORECAST_SUMMARY.iloc[0] if not FORECAST_SUMMARY.empty else pd.Series(dtype=object)
+    latest = latest_period_df(PANEL)
+    latest_period = latest["TIME_PERIOD"].iloc[0] if not latest.empty else "latest period"
+    monitor_count = 0
+    if not FORECAST_DECISION_BOARD.empty and "risk_tier" in FORECAST_DECISION_BOARD.columns:
+        monitor_count = int(FORECAST_DECISION_BOARD["risk_tier"].isin(["Alert", "Watch", "Monitor"]).sum())
+    rolling_origins = safe_int(summary.get("rolling_origin_count", 0))
+    ml_wins = safe_int(summary.get("ml_beats_strongest_baseline_count", 0))
+    best_model = str(summary.get("best_recent_model_label", "Ridge"))
+    best_mae = summary.get("best_recent_model_mae", np.nan)
+
+    lens_data = {
+        "first": {
+            "kicker": "First-time reader",
+            "title": "Understand the project in five minutes.",
+            "body": "Start with the claim, read the latest monitoring board, then use the defense cards before opening technical tabs.",
+            "cta": "Open Start Here",
+            "route": [
+                ("01", "Start Here", "Project claim"),
+                ("02", "Current Board", f"{latest_period} signals"),
+                ("03", "Defense", "Grading answers"),
+            ],
+            "signals": [
+                ("Latest period", str(latest_period), "current dashboard endpoint"),
+                ("Monitoring reads", str(monitor_count), "Alert, Watch, or Monitor countries"),
+                ("Core panel", f"{len(PANEL):,}", "country-half-year rows"),
+            ],
+        },
+        "defense": {
+            "kicker": "Defense mode",
+            "title": "Prepare the professor-facing argument first.",
+            "body": "Lead with data sufficiency, reader clarity, visualization choice, and forecast validity before the detailed evidence.",
+            "cta": "Open Defense",
+            "route": [
+                ("01", "Defense", "Four answers"),
+                ("02", "Data & Method", "Source roles"),
+                ("03", "Forecast", "H+1 proof"),
+            ],
+            "signals": [
+                ("Data layers", f"{len(SOURCE_CATALOG) if not SOURCE_CATALOG.empty else len(DATASET_PREVIEWS)}", "catalogued evidence roles"),
+                ("SAFE detail", f"{BIG_CUBE_ROWS:,}", "grouped survey-response rows"),
+                ("Forecast origins", str(rolling_origins), "rolling-origin checks"),
+            ],
+        },
+        "forecast": {
+            "kicker": "Forecast lens",
+            "title": "Read forecasting as an early-warning diagnostic.",
+            "body": "The forecast is defensible only if H+1 SME-FPI predictions beat simple persistence and compact time-series baselines.",
+            "cta": "Open Forecast",
+            "route": [
+                ("01", "Forecast", "Target and loss"),
+                ("02", "Current Board", "Tier impact"),
+                ("03", "Diagnosis", "Why flagged"),
+            ],
+            "signals": [
+                ("Best model", best_model, f"recent MAE {format_number(best_mae)}"),
+                ("ML wins", f"{ml_wins}/{rolling_origins}", "vs strongest benchmark"),
+                ("Target", "H+1 SME-FPI", "next half-year borrower pain"),
+            ],
+        },
+        "method": {
+            "kicker": "Method lens",
+            "title": "Audit what belongs to the index and what only validates it.",
+            "body": "Keep the six borrower-side SAFE inputs separate from forecast-only predictors, robustness checks, and raw data sources.",
+            "cta": "Open Method",
+            "route": [
+                ("01", "Index Basics", "Six inputs"),
+                ("02", "PCA Analysis", "Structure"),
+                ("03", "Survey Detail", "Firm slices"),
+            ],
+            "signals": [
+                ("Components", "6", "borrower-side SAFE inputs"),
+                ("Countries", str(PANEL["REF_AREA"].nunique()), "European panel members"),
+                ("Periods", str(PANEL["TIME_PERIOD"].nunique()), "half-year observations"),
+            ],
+        },
+    }
+    data = lens_data.get(mode, lens_data["first"])
+    return html.Div(
+        className=f"navigator-mode-panel navigator-mode-{mode}",
+        children=[
+            html.Div(
+                className="mode-copy",
+                children=[
+                    html.Span(data["kicker"], className="panel-kicker"),
+                    html.H2(data["title"]),
+                    visual_bullets([data["body"], "recommended path below", "jump bar stays compact"]),
+                ],
+            ),
+            html.Div(
+                className="mode-route",
+                children=[
+                    html.Span("Recommended path", className="mode-panel-label"),
+                    html.Div(
+                        className="mode-route-track",
+                        children=[lens_route_step(number, title, body) for number, title, body in data["route"]],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="mode-stats",
+                children=[
+                    html.Span("Evidence snapshot", className="mode-panel-label"),
+                    html.Div(
+                        className="lens-signal-grid",
+                        children=[lens_signal_card(label, value, note) for label, value, note in data["signals"]],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="mode-cta-hint",
+                children=[html.Strong(data["cta"]), html.Span("or use the compact jump bar below")],
+            ),
+        ],
+    )
+
+
+def quick_jump_button(button_id, label, note):
+    return html.Button(
+        id=button_id,
+        n_clicks=0,
+        className="quick-jump-button",
+        children=[
+            html.Strong(label),
+            html.Span(note),
+        ],
+    )
+
+
+def target_tab_from_button(button_id, reader_mode=None):
+    if button_id == "lens-primary-action":
+        return LENS_PRIMARY_TABS.get(reader_mode or "first", "start")
+    if button_id in READING_PATH_TABS:
+        return READING_PATH_TABS[button_id]
+    return QUICK_JUMP_TABS.get(button_id, "start")
+
+
+def interaction_hub():
+    return html.Section(
+        className="section interaction-hub interaction-hub-v2",
+        children=[
+            html.Div(
+                className="interaction-shell",
+                children=[
+                    html.Div(
+                        className="navigator-header",
+                        children=[
+                            html.Div(
+                                className="navigator-title-block",
+                                children=[
+                                    html.Span("Interactive navigator", className="panel-kicker"),
+                                    html.H2("Choose the reader mode before opening the evidence tabs."),
+                                    visual_bullets(["choose intent", "follow route", "jump to evidence"]),
+                                ],
+                            ),
+                            html.Div(
+                                className="lens-control-card",
+                                children=[
+                                    html.Span("Reader mode", className="mode-panel-label"),
+                                    dcc.RadioItems(
+                                        id="reader-lens",
+                                        className="lens-segmented",
+                                        value="first",
+                                        options=[
+                                            {"label": "First read", "value": "first"},
+                                            {"label": "Defense", "value": "defense"},
+                                            {"label": "Forecast", "value": "forecast"},
+                                            {"label": "Method", "value": "method"},
+                                        ],
+                                        inputClassName="lens-input",
+                                        labelClassName="lens-label",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    html.Div(id="lens-panel", className="lens-panel", children=reader_lens_panel("first")),
+                    html.Div(
+                        className="navigator-action-row",
+                        children=[
+                            html.Button(
+                                id="lens-primary-action",
+                                n_clicks=0,
+                                className="navigator-primary-action",
+                                children=[html.Strong("Open recommended tab"), html.Span("changes with reader mode")],
+                            ),
+                            html.Div(
+                                className="quick-jump-grid",
+                                children=[
+                                    quick_jump_button("jump-start", "Start", "claim"),
+                                    quick_jump_button("jump-board", "Board", "signals"),
+                                    quick_jump_button("jump-defense", "Defense", "answers"),
+                                    quick_jump_button("jump-forecast", "Forecast", "H+1"),
+                                    quick_jump_button("jump-method", "Method", "audit"),
+                                    quick_jump_button("jump-survey", "Survey", "slices"),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            )
+        ],
+    )
+
+
 def forecasting_summary_cards():
     if FORECAST_SUMMARY.empty:
         return [
@@ -577,10 +1832,12 @@ def forecasting_summary_cards():
     best_model = row.get("best_recent_model_label", "n/a")
     best_mae = row.get("best_recent_model_mae", np.nan)
     elastic_mae = row.get("latest_backtest_elastic_net_mae", np.nan)
+    arimax_mae = row.get("latest_backtest_country_arimax_ciss_mae", np.nan)
     naive_mae = row.get("latest_backtest_naive_mae", np.nan)
     strong_baseline = row.get("strongest_recent_baseline_label", "n/a")
     strong_baseline_mae = row.get("strongest_recent_baseline_mae", np.nan)
     improvement = row.get("best_recent_ml_improvement_vs_strongest_baseline", np.nan)
+    stability = forecast_stability_stats()
     return [
         metric_card(
             "Forecast feature panel",
@@ -590,7 +1847,7 @@ def forecasting_summary_cards():
         metric_card(
             "Macro + micro predictors",
             f"{int(row.get('macro_micro_predictor_columns', 0)):,}",
-            "SAFE cube plus macro context columns",
+            "SAFE survey-detail plus macro context columns",
         ),
         metric_card(
             "BLS/MIR/Eurostat predictors",
@@ -603,16 +1860,685 @@ def forecasting_summary_cards():
             f"MAE {format_number(best_mae)} vs naive {format_number(naive_mae)}",
         ),
         metric_card(
-            "Strongest simple baseline",
+            "Strongest benchmark",
             str(strong_baseline),
-            f"MAE {format_number(strong_baseline_mae)}; ML edge {format_number(improvement, 3)}",
+            f"includes simple and time-series; recent ML edge {format_number(improvement, 3)} ({edge_strength_label(improvement)})",
         ),
         metric_card(
-            "Elastic Net check",
-            f"MAE {format_number(elastic_mae)}",
-            "regularized linear benchmark",
+            "ML win rate",
+            f"{stability.get('ml_wins', 0)} / {stability.get('n_origins', 0)}",
+            "origins where best ML beats the strongest benchmark",
+        ),
+        metric_card(
+            "Median ML edge",
+            format_number(stability.get("median_edge", np.nan), 3),
+            f"mean edge {format_number(stability.get('mean_edge', np.nan), 3)} MAE",
+        ),
+        metric_card(
+            "Best-model stability",
+            str(stability.get("top_model", "n/a")),
+            f"{stability.get('top_model_wins', 0)} origin wins; ML family {stability.get('ml_family_wins', 0)} wins",
+        ),
+        metric_card(
+            "ARIMAX+CISS check",
+            f"MAE {format_number(arimax_mae)}",
+            f"regularized linear check: Elastic Net {format_number(elastic_mae)}",
         ),
     ]
+
+
+def latest_findings_cards():
+    summary = FORECAST_SUMMARY.iloc[0] if not FORECAST_SUMMARY.empty else pd.Series(dtype=object)
+    tier = RISK_TIER_VALIDATION.copy()
+    alert_watch = 0
+    monitor_count = 0
+    hidden_text = "none"
+    rising_text = "none"
+    if not FORECAST_DECISION_BOARD.empty and "risk_tier" in FORECAST_DECISION_BOARD.columns:
+        alert_watch = int(FORECAST_DECISION_BOARD["risk_tier"].isin(["Alert", "Watch"]).sum())
+        monitor_count = int(FORECAST_DECISION_BOARD["risk_tier"].eq("Monitor").sum())
+        board = FORECAST_DECISION_BOARD.copy()
+        if "signal_type" not in board.columns:
+            board["signal_type"] = [monitor_signal_type(row) for row in board.itertuples()]
+        hidden_text = list_country_names(board[board["signal_type"].isin(["Hidden-gap monitor", "Mixed monitor", "Visible or hidden high pressure"])])
+        rising_text = list_country_names(board[board["signal_type"].isin(["Rising-forecast monitor", "Mixed monitor", "Forward-looking warning"])])
+    best_model = summary.get("best_recent_model_label", "Ridge / regularized model")
+    best_mae = summary.get("best_recent_model_mae", np.nan)
+    strong_baseline = summary.get("strongest_recent_baseline_label", "pooled lag OLS")
+    baseline_mae = summary.get("strongest_recent_baseline_mae", np.nan)
+    ml_edge = summary.get("best_recent_ml_improvement_vs_strongest_baseline", np.nan)
+    stability = forecast_stability_stats()
+    if not tier.empty and "risk_tier" in tier.columns:
+        tier_order = {"Alert": 0, "Watch": 1, "Monitor": 2, "Normal": 3}
+        tier = tier.assign(_order=tier["risk_tier"].map(tier_order)).sort_values("_order")
+        tier_sentence = "; ".join(
+            [
+                f"{row.risk_tier}: next score {format_number(row.mean_actual_next_score)}"
+                for row in tier.itertuples()
+                if pd.notna(getattr(row, "mean_actual_next_score", np.nan))
+            ][:3]
+        )
+    else:
+        tier_sentence = "historical tier validation available after rebuilding the forecast layer"
+
+    return html.Div(
+        className="findings-grid",
+        children=[
+            evidence_card(
+                "01",
+                "Borrower-side pressure is not the same object as market stress",
+                "core claim",
+                "SME-FPI is built from SAFE borrower responses, while CISS measures financial-market stress. The gap is therefore interpretable as a diagnostic difference, not a duplicate benchmark.",
+            ),
+            evidence_card(
+                "02",
+                "The current Monitoring Board is a monitoring screen, not a policy verdict",
+                "latest status",
+                f"The latest watchlist has {alert_watch} Alert/Watch and {monitor_count} Monitor countries. Hidden-gap monitors: {hidden_text}. Rising-forecast monitors: {rising_text}.",
+            ),
+            evidence_card(
+                "03",
+                "Forecast gains are visible but small",
+                "forecast validation",
+                f"The best recent ML model is {best_model} with MAE {format_number(best_mae)}. The strongest benchmark is {strong_baseline} with MAE {format_number(baseline_mae)}, so the recent ML edge is {format_number(ml_edge, 3)} ({edge_strength_label(ml_edge)}). Across rolling origins, ML beats the strongest benchmark {stability.get('ml_wins', 0)} of {stability.get('n_origins', 0)} times.",
+            ),
+            evidence_card(
+                "04",
+                "Time-series models are useful benchmarks, not the headline engine",
+                "ARIMA check",
+                "Country ARIMA and ARIMAX+CISS are included as compact rolling-origin benchmarks. They are kept secondary because each country has only about 33 half-year observations.",
+            ),
+            evidence_card(
+                "05",
+                "Historical tiers add discipline to the story",
+                "backtest",
+                f"The historical replay checks whether higher diagnostic tiers line up with later stress levels. Recent summary: {tier_sentence}.",
+            ),
+            evidence_card(
+                "06",
+                "The honest boundary is diagnostic, not causal",
+                "limitation",
+                "The dashboard can flag borrower-side pressure, relative gaps, and forecast disagreement. It should not claim that any single macro, lender-side, loan-rate, or business-demography variable causes SME financing pain.",
+            ),
+        ],
+    )
+
+
+def professor_start_cards():
+    latest = latest_period_df(PANEL)
+    latest_period = latest["TIME_PERIOD"].iloc[0] if not latest.empty else "latest period"
+    highest = latest.sort_values("SME_FPI_equal_z", ascending=False).iloc[0] if not latest.empty else None
+    gap = latest.sort_values("Relative_Gap_equal", ascending=False).iloc[0] if not latest.empty else None
+    board = FORECAST_DECISION_BOARD.copy()
+    monitor_count = int(board["risk_tier"].isin(["Alert", "Watch", "Monitor"]).sum()) if "risk_tier" in board.columns else 0
+    hidden_text = "none"
+    rising_text = "none"
+    if not board.empty:
+        if "signal_type" not in board.columns:
+            board["signal_type"] = [monitor_signal_type(row) for row in board.itertuples()]
+        attention_board = board[board["risk_tier"].isin(["Alert", "Watch", "Monitor"])] if "risk_tier" in board.columns else board
+        hidden_text = list_country_names(attention_board[attention_board["signal_type"].astype(str).str.contains("gap|hidden", case=False, na=False)])
+        rising_text = list_country_names(attention_board[attention_board["signal_type"].astype(str).str.contains("rising|forecast", case=False, na=False)])
+    summary = FORECAST_SUMMARY.iloc[0] if not FORECAST_SUMMARY.empty else pd.Series(dtype=object)
+    best_model = summary.get("best_recent_model_label", "best recent model")
+    ml_edge = summary.get("best_recent_ml_improvement_vs_strongest_baseline", np.nan)
+    stability = forecast_stability_stats()
+
+    return html.Div(
+        className="start-summary-grid",
+        children=[
+            metric_card(
+                "Latest reading",
+                str(latest_period),
+                f"highest SME-FPI: {highest['country_name']} ({format_number(highest['SME_FPI_equal_z'])})" if highest is not None else "panel endpoint",
+            ),
+            metric_card(
+                "Largest borrower-market gap",
+                str(gap["country_name"]) if gap is not None else "n/a",
+                f"SME-FPI minus CISS = {format_number(gap['Relative_Gap_equal'])}" if gap is not None else "gap unavailable",
+            ),
+            metric_card(
+                "Monitoring list",
+                f"{monitor_count} countries",
+                f"gap monitors: {hidden_text}; rising forecast: {rising_text}",
+            ),
+            metric_card(
+                "Forecast check",
+                str(best_model),
+                f"recent ML edge vs strongest benchmark: {format_number(ml_edge, 3)}; ML wins {stability.get('ml_wins', 0)}/{stability.get('n_origins', 0)} origins",
+            ),
+        ],
+    )
+
+
+def board_counts(board):
+    if board.empty or "risk_tier" not in board.columns:
+        return {"Alert": 0, "Watch": 0, "Monitor": 0, "Normal": 0}
+    counts = board["risk_tier"].value_counts()
+    return {tier: int(counts.get(tier, 0)) for tier in ["Alert", "Watch", "Monitor", "Normal"]}
+
+
+def board_period_label(board, period_range=None):
+    if not board.empty and "TIME_PERIOD" in board.columns and board["TIME_PERIOD"].notna().any():
+        return str(board["TIME_PERIOD"].dropna().iloc[0])
+    if period_range:
+        end_idx = period_range[1]
+        if 0 <= end_idx < len(PERIODS):
+            return str(PERIODS[end_idx])
+    return "latest period"
+
+
+def board_attention_rows(board, limit=5):
+    if board.empty:
+        return []
+    attention = board[board["risk_tier"].isin(["Alert", "Watch", "Monitor"])].copy()
+    if attention.empty:
+        attention = board.head(limit).copy()
+    return attention.head(limit)
+
+
+def board_country_names(board, limit=3):
+    return list_country_names(board, limit=limit) if not board.empty else "none"
+
+
+def board_status_chips(board):
+    counts = board_counts(board)
+    hidden = board[
+        board["signal_type"].isin(["Hidden-gap monitor", "Mixed monitor", "Visible or hidden high pressure"])
+    ] if not board.empty and "signal_type" in board.columns else pd.DataFrame()
+    rising = board[
+        board["signal_type"].isin(["Rising-forecast monitor", "Mixed monitor", "Forward-looking warning"])
+    ] if not board.empty and "signal_type" in board.columns else pd.DataFrame()
+    return [
+        html.Span(f"{counts['Alert']} Alert", className="status-chip status-chip-alert"),
+        html.Span(f"{counts['Watch']} Watch", className="status-chip status-chip-watch"),
+        html.Span(f"{counts['Monitor']} Monitor", className="status-chip status-chip-monitor"),
+        html.Span(f"Hidden gap: {board_country_names(hidden)}", className="status-chip"),
+        html.Span(f"Rising forecast: {board_country_names(rising)}", className="status-chip"),
+    ]
+
+
+def hero_monitor_snapshot():
+    board = build_decision_board([0, len(PERIODS) - 1], DEFAULT_COUNTRIES, "SME_FPI_equal_z")
+    if board.empty:
+        return html.Div(
+            className="hero-status-panel",
+            children=[
+                html.Span("Current read", className="panel-kicker"),
+                html.H2("Monitoring board not available"),
+                visual_bullets(["forecast layer needed", "watchlist unavailable"]),
+            ],
+        )
+    counts = board_counts(board)
+    period = board_period_label(board)
+    top = board.iloc[0]
+    attention = board_attention_rows(board, limit=3)
+    return html.Div(
+        className="hero-status-panel",
+        children=[
+            html.Span("Current read", className="panel-kicker"),
+            html.H2(f"{period}: {counts['Alert']} Alert, {counts['Watch']} Watch, {counts['Monitor']} Monitor"),
+            visual_bullets(["watchlist first", "drivers next", "forecast agreement", "validation"]),
+            html.Div(className="hero-status-chips", children=board_status_chips(board)[:3]),
+            html.Div(
+                className="hero-watchlist",
+                children=[
+                    html.Div(
+                        children=[
+                            html.Strong(str(row.country_name)),
+                            html.Span(f"{row.risk_tier} | score {format_number(row.risk_score, 1)}"),
+                        ]
+                    )
+                    for row in attention.itertuples()
+                ],
+            ),
+            html.Small(
+                f"Top signal: {top['country_name']} because {str(top.get('primary_drivers', 'drivers are available in the board')).lower()}."
+            ),
+        ],
+    )
+
+
+def command_center_panel(board, metric_col, period_range):
+    if board.empty:
+        return html.Div(
+            className="command-center-panel",
+            children=[
+                html.Div(
+                    className="command-copy",
+                    children=[
+                        html.Span("Current board", className="panel-kicker"),
+                        html.H2("No monitoring read for this selection"),
+                        visual_bullets(["select a later period", "or rebuild the forecast layer"]),
+                    ],
+                )
+            ],
+        )
+    counts = board_counts(board)
+    period = board_period_label(board, period_range)
+    attention = board_attention_rows(board, limit=6)
+    hidden = board[
+        board["signal_type"].isin(["Hidden-gap monitor", "Mixed monitor", "Visible or hidden high pressure"])
+    ] if "signal_type" in board.columns else pd.DataFrame()
+    rising = board[
+        board["signal_type"].isin(["Rising-forecast monitor", "Mixed monitor", "Forward-looking warning"])
+    ] if "signal_type" in board.columns else pd.DataFrame()
+    high_agreement = int((board["agreement_quality"] == "High").sum()) if "agreement_quality" in board.columns else 0
+    top = board.iloc[0]
+    selected_label = INDEX_OPTIONS.get(metric_col, "selected index")
+    status_sentence = (
+        f"{period} has {counts['Alert']} Alert, {counts['Watch']} Watch, and {counts['Monitor']} Monitor countries "
+        f"under the {selected_label}. This is a triage read, not a crisis probability."
+    )
+    return html.Div(
+        className="command-center-panel",
+        children=[
+            html.Div(
+                className="command-copy",
+                children=[
+                    html.Span("Current board", className="panel-kicker"),
+                    html.H2("Who needs attention, why, and how confident is the signal?"),
+                    compact_copy_bullets([("Status", status_sentence)], className="compact-guide-list command-status-list", limit=150),
+                    html.Div(className="command-status-chips", children=board_status_chips(board)),
+                ],
+            ),
+            html.Div(
+                className="command-kpi-grid",
+                children=[
+                    metric_card("Current status", f"{counts['Alert'] + counts['Watch'] + counts['Monitor']}", f"{counts['Alert']} alert, {counts['Watch']} watch, {counts['Monitor']} monitor"),
+                    metric_card("Top country", str(top["country_name"]), f"{top['risk_tier']} score {format_number(top['risk_score'], 1)}"),
+                    metric_card("Hidden-gap reads", str(len(hidden)), board_country_names(hidden)),
+                    metric_card("Rising forecast reads", str(len(rising)), board_country_names(rising)),
+                    metric_card("High agreement", str(high_agreement), "model agreement, not certainty"),
+                ],
+            ),
+            html.Div(
+                className="watchlist-panel",
+                children=[
+                    html.Div(
+                        className="watchlist-heading",
+                        children=[
+                            html.Span("Watchlist", className="panel-kicker"),
+                            html.H3("Read these countries first"),
+                        ],
+                    ),
+                    html.Div(
+                        className="watchlist-rows",
+                        children=[
+                            html.Details(
+                                className=f"watchlist-row watchlist-row-{str(row.risk_tier).lower()}",
+                                children=[
+                                    html.Summary(
+                                        children=[
+                                            html.Div(
+                                                className="watchlist-country",
+                                                children=[
+                                                    html.Strong(str(row.country_name)),
+                                                    html.Span(f"{row.risk_tier} | {row.signal_type}"),
+                                                ],
+                                            ),
+                                            html.Div(
+                                                className="watchlist-chip-grid",
+                                                children=[
+                                                    html.Span(f"Level {format_number(row.current_score)}"),
+                                                    html.Span(f"Gap {format_number(row.gap_value)}"),
+                                                    html.Span(f"H+1 {format_number(row.best_model_forecast)}"),
+                                                    html.Span(f"Agreement {getattr(row, 'agreement_quality', 'n/a')}"),
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="watchlist-reason",
+                                        children=[
+                                            html.Strong("Why flagged?"),
+                                            compact_copy_bullets(
+                                                [("Drivers", str(row.primary_drivers))],
+                                                className="compact-guide-list watchlist-reason-list",
+                                                limit=150,
+                                            ),
+                                            html.Small(str(getattr(row, "recommended_read", "Inspect the linked evidence tabs."))),
+                                        ],
+                                    ),
+                                ],
+                            )
+                            for row in attention.itertuples()
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+def reading_path_node_class(target, active_target):
+    suffix = " reading-path-node--active" if target == active_target else ""
+    return f"reading-path-node{suffix}"
+
+
+def reading_path_node_classes(active_target):
+    return [reading_path_node_class(step["target"], active_target) for step in READING_PATH_STEPS]
+
+
+def professor_reading_path(active_target="start"):
+    return html.Div(
+        className="reading-path-timeline",
+        children=[
+            html.Div(
+                className="reading-path-track",
+                children=[
+                    html.Button(
+                        id=f"read-path-{step['target']}",
+                        n_clicks=0,
+                        className=reading_path_node_class(step["target"], active_target),
+                        children=[
+                            html.Span(step["number"], className="reading-node-number"),
+                            html.Strong(step["title"]),
+                            html.Small(step["short"]),
+                        ],
+                    )
+                    for step in READING_PATH_STEPS
+                ],
+            ),
+            html.Div(id="reading-path-detail", className="reading-path-detail", children=reading_path_detail("start")),
+        ],
+    )
+
+
+def reading_path_detail(target):
+    step = READING_PATH_LOOKUP.get(target, READING_PATH_LOOKUP["start"])
+    return [
+        html.Div(
+            className="reading-detail-title",
+            children=[
+                html.Span(f"{step['number']} / {step['short']}", className="panel-kicker"),
+                html.H3(step["title"]),
+            ],
+        ),
+        html.Div(
+            className="reading-detail-copy",
+            children=[
+                compact_copy_bullets(
+                    [
+                        ("Read", step["body"]),
+                        ("Why", step["why"]),
+                        ("Outcome", step["outcome"]),
+                    ],
+                    className="compact-guide-list reading-detail-bullets",
+                    limit=150,
+                ),
+            ],
+        ),
+    ]
+
+
+def professor_glossary_panel():
+    terms = [
+        ("SAFE", "ECB firm survey", "The source that asks firms directly about financing conditions."),
+        ("CISS", "market-stress benchmark", "A financial-market stress indicator, not an SME borrower survey."),
+        ("SME-FPI", "our borrower-side index", "Higher values mean SMEs report above-average financing pain."),
+        ("Relative gap", "SME-FPI minus CISS", "Positive values mean borrower pain is high relative to market stress."),
+        ("H+1", "next half-year", "The forecast target period: one semiannual step ahead."),
+        ("MAE", "average forecast error", "Lower is better; one unit is one standardized-index point."),
+    ]
+    return html.Div(
+        className="glossary-grid",
+        children=[concept_card(title, tag, body) for title, tag, body in terms],
+    )
+
+
+def professor_submission_panel():
+    return html.Div(
+        className="submission-panel",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Submission reader guide", className="panel-kicker"),
+                    html.H3("The dashboard should be read as a self-contained analytical report"),
+                    visual_bullets(
+                        [
+                            "no SME-finance background assumed",
+                            "borrower-side index first",
+                            "CISS benchmark comparison",
+                            "monitoring value checked",
+                        ]
+                    ),
+                ],
+            ),
+            html.Div(
+                className="submission-rule-list",
+                children=[
+                    html.Div(children=[html.Strong("Main claim"), html.Span("SME borrower pressure can diverge from market stress.")]),
+                    html.Div(children=[html.Strong("Evidence"), html.Span("levels, gaps, forecast errors, tier validation")]),
+                    html.Div(children=[html.Strong("Boundary"), html.Span("monitoring, not causal policy or crisis prediction")]),
+                ],
+            ),
+        ],
+    )
+
+
+def make_baseline_dominance_figure():
+    if FORECAST_EVALUATION.empty or "model_key" not in FORECAST_EVALUATION.columns:
+        return empty_figure("Forecast evaluation is not available.")
+    data = FORECAST_EVALUATION.copy()
+    data["model_family"] = data.get("model_family", data["model_key"].map(MODEL_FAMILIES)).fillna("model")
+    strongest_benchmark = (
+        data[data["model_key"].isin(BASELINE_MODEL_KEYS)]
+        .groupby("origin_period_sort")["mae"]
+        .min()
+        .rename("strongest_benchmark_mae")
+    )
+    best_ml = (
+        data[data["model_key"].isin(ML_MODEL_KEYS)]
+        .sort_values("mae")
+        .groupby("origin_period_sort", as_index=False)
+        .first()[["origin_period_sort", "origin_period", "model_label", "mae"]]
+        .rename(columns={"mae": "best_ml_mae", "model_label": "best_ml_model"})
+    )
+    plot = best_ml.merge(strongest_benchmark, on="origin_period_sort", how="left")
+    plot["ml_edge"] = plot["strongest_benchmark_mae"] - plot["best_ml_mae"]
+    plot = plot.sort_values("origin_period_sort")
+    win_count = int((plot["ml_edge"] > 0).sum())
+    origin_count = int(len(plot))
+    median_edge = float(plot["ml_edge"].median()) if origin_count else np.nan
+    colors = np.where(plot["ml_edge"] >= 0, "#2f6f9f", "#d19a2e")
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=plot["origin_period"],
+            y=plot["ml_edge"],
+            marker={"color": colors},
+            customdata=np.stack([plot["best_ml_model"], plot["best_ml_mae"], plot["strongest_benchmark_mae"]], axis=-1),
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Best ML model: %{customdata[0]}<br>"
+                "Best ML MAE: %{customdata[1]:.3f}<br>"
+                "Strongest benchmark MAE: %{customdata[2]:.3f}<br>"
+                "ML edge: %{y:.3f}<extra></extra>"
+            ),
+        )
+    )
+    fig.add_hline(y=0, line_dash="dot", line_color="#8b98a5")
+    fig.update_xaxes(title_text="Forecast origin", tickangle=-45)
+    fig.update_yaxes(title_text="MAE improvement vs strongest benchmark")
+    return polish(
+        fig,
+        chart_title(
+            "ML usually helps, but the edge is not always large",
+            f"Best ML beats the strongest benchmark in {win_count}/{origin_count} origins; median edge {format_number(median_edge, 3)} MAE",
+        ),
+        height=470,
+    )
+
+
+def make_forecast_loss_figure(countries=None):
+    if FORECAST_EVALUATION.empty or "model_key" not in FORECAST_EVALUATION.columns:
+        return empty_figure("Forecast error evaluation is not available.")
+    evaluation = FORECAST_EVALUATION.copy()
+    required = {"origin_period_sort", "origin_period", "model_key", "model_label", "mae", "rmse"}
+    if not required.issubset(evaluation.columns):
+        return empty_figure("Forecast evaluation file is missing MAE/RMSE fields.")
+    evaluation["model_family"] = evaluation.get("model_family", evaluation["model_key"].map(MODEL_FAMILIES)).fillna("model")
+
+    best_ml = (
+        evaluation[evaluation["model_key"].isin(ML_MODEL_KEYS)]
+        .sort_values(["origin_period_sort", "mae"])
+        .groupby("origin_period_sort", as_index=False)
+        .first()[["origin_period_sort", "origin_period", "model_label", "mae", "rmse"]]
+        .rename(columns={"model_label": "best_ml_model", "mae": "best_ml_mae", "rmse": "best_ml_rmse"})
+    )
+    strongest_benchmark = (
+        evaluation[evaluation["model_key"].isin(BASELINE_MODEL_KEYS)]
+        .sort_values(["origin_period_sort", "mae"])
+        .groupby("origin_period_sort", as_index=False)
+        .first()[["origin_period_sort", "model_label", "mae", "rmse"]]
+        .rename(
+            columns={
+                "model_label": "strongest_benchmark_model",
+                "mae": "strongest_benchmark_mae",
+                "rmse": "strongest_benchmark_rmse",
+            }
+        )
+    )
+    trend = best_ml.merge(strongest_benchmark, on="origin_period_sort", how="inner").sort_values("origin_period_sort")
+    if trend.empty:
+        return empty_figure("No comparable ML and benchmark forecast errors are available.")
+    trend["ml_edge"] = trend["strongest_benchmark_mae"] - trend["best_ml_mae"]
+
+    country_error = pd.DataFrame()
+    best_key = best_forecast_model_key()
+    if not FORECAST_COUNTRY_ERROR.empty and "model_key" in FORECAST_COUNTRY_ERROR.columns:
+        country_error = FORECAST_COUNTRY_ERROR[FORECAST_COUNTRY_ERROR["model_key"] == best_key].copy()
+        if country_error.empty and "model_family" in FORECAST_COUNTRY_ERROR.columns:
+            country_error = (
+                FORECAST_COUNTRY_ERROR[FORECAST_COUNTRY_ERROR["model_family"] == "machine learning"]
+                .sort_values(["REF_AREA", "mean_abs_error"])
+                .groupby(["REF_AREA", "country_name"], as_index=False)
+                .first()
+            )
+
+    fig = make_subplots(
+        rows=1,
+        cols=2,
+        subplot_titles=("Rolling-origin forecast error", "Country error, current best model"),
+        column_widths=[0.58, 0.42],
+        horizontal_spacing=0.16,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend["origin_period"],
+            y=trend["best_ml_mae"],
+            mode="lines+markers",
+            name="Best ML MAE",
+            line={"color": "#2f6f9f", "width": 3},
+            marker={"size": 7},
+            customdata=np.stack(
+                [
+                    trend["best_ml_model"],
+                    trend["best_ml_rmse"],
+                    trend["strongest_benchmark_model"],
+                    trend["strongest_benchmark_mae"],
+                    trend["ml_edge"],
+                ],
+                axis=-1,
+            ),
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Best ML model: %{customdata[0]}<br>"
+                "ML MAE: %{y:.3f}<br>"
+                "ML RMSE: %{customdata[1]:.3f}<br>"
+                "Strongest benchmark: %{customdata[2]}<br>"
+                "Benchmark MAE: %{customdata[3]:.3f}<br>"
+                "ML edge: %{customdata[4]:.3f}<extra></extra>"
+            ),
+        ),
+        row=1,
+        col=1,
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=trend["origin_period"],
+            y=trend["strongest_benchmark_mae"],
+            mode="lines+markers",
+            name="Strongest benchmark MAE",
+            line={"color": "#8b98a5", "width": 2, "dash": "dash"},
+            marker={"size": 6},
+            customdata=np.stack(
+                [trend["strongest_benchmark_model"], trend["strongest_benchmark_rmse"], trend["best_ml_model"]],
+                axis=-1,
+            ),
+            hovertemplate=(
+                "<b>%{x}</b><br>"
+                "Benchmark: %{customdata[0]}<br>"
+                "Benchmark MAE: %{y:.3f}<br>"
+                "Benchmark RMSE: %{customdata[1]:.3f}<br>"
+                "Best ML model: %{customdata[2]}<extra></extra>"
+            ),
+        ),
+        row=1,
+        col=1,
+    )
+
+    if not country_error.empty:
+        selected = set(selected_or_default(countries))
+        country_error = country_error.sort_values("mean_abs_error", ascending=True)
+        colors = np.where(country_error["REF_AREA"].isin(selected), "#2f6f9f", "#aeb8c2")
+        fig.add_trace(
+            go.Bar(
+                x=country_error["mean_abs_error"],
+                y=country_error["country_name"],
+                orientation="h",
+                name="Country MAE",
+                marker={"color": colors, "line": {"color": "#ffffff", "width": 0.8}},
+                customdata=np.stack(
+                    [
+                        country_error.get("model_label", pd.Series(["Best model"] * len(country_error))),
+                        country_error.get("rmse", pd.Series([np.nan] * len(country_error))),
+                        country_error.get("bias", pd.Series([np.nan] * len(country_error))),
+                        country_error.get("direction_hit_share", pd.Series([np.nan] * len(country_error))) * 100,
+                        country_error.get("n_origins", pd.Series([np.nan] * len(country_error))),
+                    ],
+                    axis=-1,
+                ),
+                hovertemplate=(
+                    "<b>%{y}</b><br>"
+                    "Model: %{customdata[0]}<br>"
+                    "Mean abs. error: %{x:.3f}<br>"
+                    "RMSE: %{customdata[1]:.3f}<br>"
+                    "Bias: %{customdata[2]:.3f}<br>"
+                    "Directional hit: %{customdata[3]:.0f}%<br>"
+                    "Rolling origins: %{customdata[4]:.0f}<extra></extra>"
+                ),
+                showlegend=False,
+            ),
+            row=1,
+            col=2,
+        )
+    else:
+        fig.add_annotation(
+            text="Country-level forecast errors are unavailable.",
+            x=0.5,
+            y=0.5,
+            xref="x2 domain",
+            yref="y2 domain",
+            showarrow=False,
+            font={"color": "#53616d"},
+        )
+
+    fig.update_xaxes(title_text="Forecast origin", tickangle=-45, row=1, col=1)
+    fig.update_yaxes(title_text="MAE, lower is better", row=1, col=1)
+    fig.update_xaxes(title_text="Mean absolute error", row=1, col=2)
+    fig.update_yaxes(title_text=None, row=1, col=2)
+    fig = polish(
+        fig,
+        chart_title(
+            "Forecast loss is reported as out-of-sample error",
+            "MAE is the main loss metric because SME-FPI is standardized; RMSE is kept in hover text to reveal larger misses",
+        ),
+        height=560,
+    )
+    fig.update_layout(margin={"l": 74, "r": 36, "t": 132, "b": 104}, legend={"orientation": "h", "y": 1.04})
+    return fig
 
 
 def forecast_feature_list():
@@ -623,7 +2549,8 @@ def forecast_feature_list():
         ("Lender-side signal", "ECB BLS SME credit standards, loan demand, terms, and rejection pressure"),
         ("Loan market signal", "ECB MIR small-loan rates, large-loan benchmark, spreads, and volumes"),
         ("Business outcome signal", "Eurostat quarterly registrations and bankruptcy indexes as external real-economy predictors"),
-        ("Model suite", "Elastic Net, Ridge, Random Forest, and Gradient Boosting compared against naive, country mean, country AR(1), momentum, and pooled OLS baselines"),
+        ("Time-series benchmark", "Country ARIMA(1,0,0) and ARIMAX+CISS test whether a compact country-level time-series model is competitive"),
+        ("Model suite", "Elastic Net, Ridge, Random Forest, and Gradient Boosting compared against naive, country mean, country AR(1), ARIMA/ARIMAX, momentum, and pooled OLS baselines"),
     ]
     return html.Div(
         className="forecast-feature-grid",
@@ -636,7 +2563,7 @@ def read_step(number, title, body):
         className="read-step",
         children=[
             html.Span(number),
-            html.Div(children=[html.Strong(title), html.P(body)]),
+            html.Div(children=[html.Strong(title), html.P(compact_text(body, 112))]),
         ],
     )
 
@@ -647,7 +2574,7 @@ def term_item(title, tag, body):
         children=[
             html.Span(tag),
             html.Strong(title),
-            html.P(body),
+            html.P(compact_text(body, 108)),
         ],
     )
 
@@ -657,7 +2584,7 @@ def variable_item(symbol, title, body):
         className="variable-item",
         children=[
             dcc.Markdown(symbol, mathjax=True, className="variable-symbol"),
-            html.Div(children=[html.Strong(title), html.P(body)]),
+            html.Div(children=[html.Strong(title), html.P(compact_text(body, 112))]),
         ],
     )
 
@@ -668,13 +2595,202 @@ def journey_card(number, title, body):
         children=[
             html.Span(number, className="journey-number"),
             html.H3(title),
-            html.P(body),
+            html.P(compact_text(body, 112)),
         ],
     )
 
 
+def methodology_pipeline():
+    steps = [
+        ("01", "Raw sources", "SAFE, CISS, World Bank, BLS, MIR, Eurostat"),
+        ("02", "Cleaned panels", "Country-half-year harmonization and source-specific aggregation"),
+        ("03", "SME-FPI core", "Borrower-side SAFE components, z-scores, coverage rules, robustness weights"),
+        ("04", "Diagnostic layers", "Relative SME-CISS gap, PCA clusters, SAFE survey-detail slices, country cards"),
+        ("05", "Forecast layer", "Rolling-origin baselines, ARIMA/ARIMAX, ML models, model agreement"),
+        ("06", "Validation", "Future outcomes, historical monitoring tiers, country forecast errors, limitations"),
+    ]
+    nodes = []
+    for number, title, body in steps:
+        nodes.append(
+            html.Div(
+                className="pipeline-flow-node",
+                children=[
+                    html.Span(number),
+                    html.Strong(title),
+                    html.P(compact_text(body, 112)),
+                ],
+            )
+        )
+    return html.Div(className="pipeline-flow", children=nodes)
+
+
 def control(label, element):
     return html.Div(className="control", children=[html.Span(label), element])
+
+
+def loading_graph(graph_id, className="chart", figure=None):
+    graph_kwargs = {
+        "id": graph_id,
+        "className": className,
+        "config": {"displayModeBar": False, "responsive": True},
+    }
+    if figure is not None:
+        graph_kwargs["figure"] = figure
+    return dcc.Loading(
+        className="graph-loading",
+        type="circle",
+        color="#2f6f9f",
+        children=dcc.Graph(**graph_kwargs),
+    )
+
+
+def relative_display_path(path):
+    try:
+        return str(path.relative_to(BASE_DIR)).replace("\\", "/")
+    except ValueError:
+        return str(path)
+
+
+def dataset_source_label(item):
+    text = f"{item.get('label', '')} {item.get('path', '')}".lower()
+    if "sme-fpi" in text or "sme_fpi" in text:
+        return "ECB SAFE-derived processed panel"
+    if "safe" in text:
+        return "ECB SAFE survey"
+    if "ciss" in text:
+        return "ECB CISS market-stress benchmark"
+    if "worldbank" in text or "macro" in text:
+        return "World Bank macro context"
+    if "bls" in text:
+        return "ECB Bank Lending Survey"
+    if "mir" in text:
+        return "ECB MFI Interest Rate Statistics"
+    if "eurostat" in text:
+        return "Eurostat business demography"
+    if "forecast" in text or "decision" in text or "validation" in text:
+        return "Generated project output"
+    return "Generated analytical layer"
+
+
+def dataset_frequency_label(item):
+    identity = f"{item.get('key', '')} {item.get('label', '')} {item.get('layer', '')} {item.get('path', '')}".lower()
+    if "daily" in identity:
+        return "Daily source, semiannual dashboard aggregation"
+    if "quarter" in identity or "eurostat" in identity or "bls" in identity:
+        return "Quarterly source, semiannual dashboard aggregation"
+    if "monthly" in identity or "mir" in identity:
+        return "Monthly source, semiannual dashboard aggregation"
+    if any(token in identity for token in ["forecast", "decision", "tier", "error", "evaluation"]):
+        return "Rolling-origin country-half-year output"
+    return "Country-half-year analytical panel"
+
+
+def dataset_used_in_label(item):
+    text = f"{item.get('key', '')} {item.get('label', '')} {item.get('purpose', '')}".lower()
+    tabs = []
+    if any(token in text for token in ["main panel", "sme-fpi", "component", "ciss"]):
+        tabs.extend(["Index Basics", "Trend Explorer", "Borrower-Market Gap"])
+    if any(token in text for token in ["forecast", "model", "decision", "tier", "error"]):
+        tabs.extend(["Monitoring Board", "Forecast Check", "Country Diagnosis"])
+    if any(token in text for token in ["cube", "q0b", "severity"]):
+        tabs.append("Firm Survey Detail")
+    if any(token in text for token in ["validation", "catalog", "source"]):
+        tabs.append("Data & Method")
+    if not tabs:
+        tabs.append("Data Preview")
+    return ", ".join(dict.fromkeys(tabs))
+
+
+def metadata_item(label, value):
+    return html.Div(
+        className="dataset-metadata-item",
+        children=[html.Span(label), html.Strong(value)],
+    )
+
+
+def dataset_preview_options():
+    return [
+        {
+            "label": f"{item['label']} - {item['layer']}",
+            "value": item["key"],
+        }
+        for item in DATASET_PREVIEWS
+        if item["path"].exists()
+    ]
+
+
+def render_dataset_preview(dataset_key, row_count):
+    item = DATASET_PREVIEW_LOOKUP.get(dataset_key) or DATASET_PREVIEWS[0]
+    path = item["path"]
+    safe_row_count = int(row_count or 10)
+    if safe_row_count not in {5, 10, 20, 50}:
+        safe_row_count = 10
+
+    if not path.exists():
+        return html.Div(
+            className="source-table-empty",
+            children=f"Dataset file is missing: {relative_display_path(path)}",
+        )
+
+    try:
+        preview = pd.read_csv(path, nrows=safe_row_count)
+    except Exception as exc:
+        return html.Div(
+            className="source-table-empty",
+            children=f"Could not preview {relative_display_path(path)}: {exc}",
+        )
+
+    preview = preview.replace({np.nan: ""})
+    columns = [str(col) for col in preview.columns]
+    rows = [
+        html.Tr([html.Td(str(value)) for value in row])
+        for row in preview.itertuples(index=False, name=None)
+    ]
+    row_label = f"{int(item['rows']):,}" if item.get("rows") is not None and pd.notna(item.get("rows")) else "see file"
+    key_columns = ", ".join(columns[:6]) + (" ..." if len(columns) > 6 else "")
+
+    return html.Div(
+        className="dataset-preview-panel",
+        children=[
+            html.Div(
+                className="dataset-preview-summary",
+                children=[
+                    metric_card("Selected dataset", item["label"], item["layer"]),
+                    metric_card("File path", relative_display_path(path), "local project file"),
+                    metric_card("Rows in layer", row_label, f"showing first {safe_row_count} rows"),
+                    metric_card("Columns", f"{len(columns):,}", "all preview columns are shown"),
+                ],
+            ),
+            html.Div(
+                className="dataset-purpose-panel",
+                children=[
+                    html.Span("How this dataset is used", className="panel-kicker"),
+                    compact_copy_bullets([("Purpose", item["purpose"])], className="compact-guide-list dataset-purpose-list", limit=150),
+                    html.Div(
+                        className="dataset-metadata-grid",
+                        children=[
+                            metadata_item("Source", dataset_source_label(item)),
+                            metadata_item("Frequency", dataset_frequency_label(item)),
+                            metadata_item("Used in tabs", dataset_used_in_label(item)),
+                            metadata_item("Key columns", key_columns),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="source-table-wrap dataset-preview-table-wrap",
+                children=[
+                    html.Table(
+                        className="source-table dataset-preview-table",
+                        children=[
+                            html.Thead(html.Tr([html.Th(col) for col in columns])),
+                            html.Tbody(rows),
+                        ],
+                    )
+                ],
+            ),
+        ],
+    )
 
 
 def make_map(df, metric_col):
@@ -1447,6 +3563,69 @@ def simple_forecast_feature_frame(meta, features):
     return features[simple_cols + country_cols].replace([np.inf, -np.inf], np.nan)
 
 
+def country_time_series_prediction(model_key, history, row, fallback_value):
+    history = history.dropna(subset=["target_next"]).sort_values("period_index").copy()
+    if len(history) < 8 or history["target_next"].nunique() < 2:
+        return fallback_value
+
+    endog = pd.to_numeric(history["target_next"], errors="coerce")
+    if endog.isna().all():
+        return fallback_value
+    endog = endog.interpolate(limit_direction="both").ffill().bfill()
+    if endog.isna().any() or endog.nunique() < 2:
+        return fallback_value
+
+    exog = None
+    future_exog = None
+    if model_key == "country_arimax_ciss":
+        if "CISS_z" not in history.columns or pd.isna(row.get("CISS_z", np.nan)):
+            return fallback_value
+        exog_series = pd.to_numeric(history["CISS_z"], errors="coerce")
+        if exog_series.notna().sum() < 6:
+            return fallback_value
+        exog_series = exog_series.interpolate(limit_direction="both").ffill().bfill()
+        if exog_series.isna().any():
+            return fallback_value
+        exog = exog_series.to_frame("CISS_z")
+        future_exog = pd.DataFrame({"CISS_z": [float(row["CISS_z"])]})
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", StatsmodelsConvergenceWarning)
+            warnings.simplefilter("ignore", UserWarning)
+            warnings.simplefilter("ignore", FutureWarning)
+            model = SARIMAX(
+                endog,
+                exog=exog,
+                order=(1, 0, 0),
+                trend="c",
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            fit = model.fit(disp=False, maxiter=80)
+            forecast = fit.forecast(steps=1, exog=future_exog)
+    except Exception:
+        return fallback_value
+
+    value = float(forecast.iloc[0] if hasattr(forecast, "iloc") else forecast[0])
+    return value if np.isfinite(value) else fallback_value
+
+
+def time_series_predictions(model_key, meta, train_mask, test_mask, y_train):
+    test_index = meta.index[test_mask]
+    fallback = meta.loc[test_index, "metric_current"].copy().fillna(float(y_train.mean()))
+    values = []
+    for idx, row in meta.loc[test_index].iterrows():
+        country = row["REF_AREA"]
+        history_mask = train_mask & meta["REF_AREA"].eq(country)
+        history_cols = ["period_index", "target_next"]
+        if "CISS_z" in meta.columns:
+            history_cols.append("CISS_z")
+        history = meta.loc[history_mask, history_cols].copy()
+        values.append(country_time_series_prediction(model_key, history, row, float(fallback.loc[idx])))
+    return pd.Series(values, index=test_index)
+
+
 def baseline_predictions(model_key, meta, train_mask, test_mask, y_train, simple_features):
     test_index = meta.index[test_mask]
     fallback = meta.loc[test_index, "metric_current"].copy().fillna(float(y_train.mean()))
@@ -1495,6 +3674,8 @@ def baseline_predictions(model_key, meta, train_mask, test_mask, y_train, simple
             model = make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), LinearRegression())
             model.fit(X_train[usable_cols], y_train)
             pred = pd.Series(model.predict(X_test[usable_cols]), index=test_index)
+    elif model_key in TIME_SERIES_MODEL_KEYS:
+        pred = time_series_predictions(model_key, meta, train_mask, test_mask, y_train)
     else:
         raise ValueError(f"Unknown baseline model: {model_key}")
 
@@ -1503,6 +3684,17 @@ def baseline_predictions(model_key, meta, train_mask, test_mask, y_train, simple
 
 
 def model_predictions_for_origin(end_idx, metric_col, countries=None):
+    if metric_col == "SME_FPI_equal_z" and not FORECAST_ALL_PREDICTIONS.empty and end_idx < len(PERIODS):
+        origin_period = PERIODS[end_idx]
+        precomputed = FORECAST_ALL_PREDICTIONS.copy()
+        period_col = "forecast_origin_period" if "forecast_origin_period" in precomputed.columns else "TIME_PERIOD"
+        if period_col in precomputed.columns:
+            precomputed = precomputed[precomputed[period_col].astype(str).eq(str(origin_period))].copy()
+            if countries:
+                precomputed = precomputed[precomputed["REF_AREA"].isin(countries)]
+            if not precomputed.empty:
+                return precomputed
+
     meta, features = make_forecast_dataset(metric_col)
     train_mask = (meta["period_index"] < end_idx) & meta["target_next"].notna()
     test_mask = meta["period_index"] == end_idx
@@ -1596,7 +3788,7 @@ def recent_model_scoreboard():
 def best_forecast_model_key():
     if not FORECAST_SUMMARY.empty:
         key = FORECAST_SUMMARY.iloc[0].get("best_recent_model_key", None)
-        if isinstance(key, str) and key in FORECAST_MODEL_LABELS and key != "naive":
+        if isinstance(key, str) and key in ML_MODEL_KEYS:
             return key
     scores = recent_model_scoreboard()
     scores = scores[scores["model_key"].isin(ML_MODEL_KEYS)] if not scores.empty else scores
@@ -1656,7 +3848,9 @@ def make_forecast_figure(period_range, countries, metric_col):
     latest["direction"] = np.where(latest["forecast"] >= latest[metric_col], "Rising pressure", "Easing pressure")
     latest = latest.sort_values("forecast", ascending=True)
 
-    next_period = PERIODS[end_idx + 1] if end_idx + 1 < len(PERIODS) else next_half_year_label(latest["TIME_PERIOD"].iloc[0])
+    has_realized_target = end_idx + 1 < len(PERIODS)
+    next_period = PERIODS[end_idx + 1] if has_realized_target else next_half_year_label(latest["TIME_PERIOD"].iloc[0])
+    target_status = "historical target available" if has_realized_target else "target actual not yet available"
 
     scores = recent_model_scoreboard()
     mae_label = "Backtest unavailable"
@@ -1670,11 +3864,11 @@ def make_forecast_figure(period_range, countries, metric_col):
             )
 
     fig = make_subplots(
-        rows=1,
-        cols=2,
-        specs=[[{"type": "xy"}, {"type": "xy"}]],
-        column_widths=[0.58, 0.42],
-        horizontal_spacing=0.12,
+        rows=2,
+        cols=1,
+        specs=[[{"type": "xy"}], [{"type": "xy"}]],
+        row_heights=[0.62, 0.38],
+        vertical_spacing=0.18,
         subplot_titles=("Next-period country forecast", "Recent rolling-origin model comparison"),
     )
     fig.add_trace(
@@ -1786,23 +3980,23 @@ def make_forecast_figure(period_range, countries, metric_col):
                 ),
                 showlegend=False,
             ),
-            row=1,
-            col=2,
+            row=2,
+            col=1,
         )
-        fig.update_yaxes(autorange="reversed", row=1, col=2)
+        fig.update_yaxes(autorange="reversed", row=2, col=1)
 
     fig.add_vline(x=0, line_dash="dot", line_color="#8b98a5", row=1, col=1)
     fig.update_xaxes(title_text="Standardized score", row=1, col=1)
     fig.update_yaxes(title_text=None, row=1, col=1)
-    fig.update_xaxes(title_text="Mean absolute error, lower is better", row=1, col=2)
-    fig.update_yaxes(title_text=None, row=1, col=2)
+    fig.update_xaxes(title_text="Mean absolute error, lower is better", row=2, col=1)
+    fig.update_yaxes(title_text=None, row=2, col=1)
     fig = polish(
         fig,
         chart_title(
-            "Which countries may face rising SME financing pressure next?",
-            f"Expanded SAFE + macro + BLS/MIR/Eurostat model suite from {latest['TIME_PERIOD'].iloc[0]} to {next_period}; baselines included; {mae_label}",
+            "Forecasts are diagnostic early-warning scores, not deterministic outcomes",
+            f"{latest['TIME_PERIOD'].iloc[0]} to {next_period}; {target_status}; expanded predictors; {mae_label}",
         ),
-        height=560,
+        height=760,
     )
     fig.update_layout(margin={"l": 116, "r": 34, "t": 138, "b": 94})
     return fig
@@ -1827,9 +4021,54 @@ def confidence_label(model_agreement, forecast_range, components_available):
     return "Low"
 
 
+def monitor_signal_type(row):
+    tier = str(getattr(row, "risk_tier", "Normal"))
+    current = getattr(row, "current_score", np.nan)
+    gap = getattr(row, "gap_value", np.nan)
+    delta = getattr(row, "best_model_delta", np.nan)
+    agreement = getattr(row, "ml_model_agreement_rising", np.nan)
+    hidden_signal = pd.notna(gap) and gap >= 0.35
+    visible_level = pd.notna(current) and current >= 0.35
+    rising_signal = pd.notna(delta) and delta >= 0.10
+    rising_agreement = pd.notna(agreement) and agreement >= 0.75 and pd.notna(delta) and delta >= 0
+
+    if tier in {"Alert", "Watch"}:
+        if hidden_signal and (rising_signal or rising_agreement):
+            return "High pressure + rising forecast"
+        if hidden_signal or visible_level:
+            return "Visible or hidden high pressure"
+        if rising_signal or rising_agreement:
+            return "Forward-looking warning"
+        return "Composite warning"
+    if tier == "Monitor":
+        if hidden_signal and (rising_signal or rising_agreement):
+            return "Mixed monitor"
+        if hidden_signal or visible_level:
+            return "Hidden-gap monitor"
+        if rising_signal or rising_agreement:
+            return "Rising-forecast monitor"
+        return "Single-signal monitor"
+    if hidden_signal:
+        return "Below-threshold hidden gap"
+    if rising_signal or rising_agreement:
+        return "Below-threshold rising signal"
+    return "Normal"
+
+
+def list_country_names(frame, limit=3):
+    if frame.empty:
+        return "none"
+    names = frame["country_name"].astype(str).head(limit).tolist()
+    suffix = "" if len(frame) <= limit else f" +{len(frame) - limit}"
+    return ", ".join(names) + suffix
+
+
 def decision_driver_text(row, context):
     drivers = []
     for col, label in COMPONENT_DRIVER_LABELS.items():
+        if col in row.index and pd.notna(row[col]):
+            drivers.append((float(row[col]), label))
+    for col, label in PRESSURE_GROUP_LABELS.items():
         if col in row.index and pd.notna(row[col]):
             drivers.append((float(row[col]), label))
     context_labels = {
@@ -1851,7 +4090,7 @@ def decision_driver_text(row, context):
                 if score > 0:
                     drivers.append((score, label))
     if pd.notna(row.get("gap_value", np.nan)) and row["gap_value"] >= 0.35:
-        drivers.append((float(row["gap_value"]) + 0.5, "Hidden SME-CISS gap"))
+        drivers.append((float(row["gap_value"]) + 0.5, "Relative SME-CISS gap"))
     if pd.notna(row.get("best_model_delta", np.nan)) and row["best_model_delta"] >= 0.10:
         drivers.append((float(row["best_model_delta"]) + 0.5, "ML forecast rising"))
     if not drivers:
@@ -1884,9 +4123,18 @@ def build_decision_board(period_range, countries, metric_col):
         )
     )
     best_key = best_forecast_model_key()
-    best = predictions[predictions["model_key"] == best_key][
-        ["REF_AREA", "predicted_score", "predicted_delta", "model_label", "forecast_target_period"]
-    ].rename(
+    best_cols = [
+        "REF_AREA",
+        "predicted_score",
+        "predicted_delta",
+        "model_label",
+        "forecast_target_period",
+        "actual_next_score",
+        "actual_delta",
+        "forecast_abs_error",
+    ]
+    best_cols = [col for col in best_cols if col in predictions.columns]
+    best = predictions[predictions["model_key"] == best_key][best_cols].rename(
         columns={
             "predicted_score": "best_model_forecast",
             "predicted_delta": "best_model_delta",
@@ -1919,6 +4167,8 @@ def build_decision_board(period_range, countries, metric_col):
         confidence_label(row.ml_model_agreement_rising, row.forecast_range, row.components_available)
         for row in board.itertuples()
     ]
+    board["agreement_quality"] = board["confidence"]
+    board["signal_type"] = [monitor_signal_type(row) for row in board.itertuples()]
     board["primary_drivers"] = board.apply(lambda row: decision_driver_text(row, board), axis=1)
     board["recommended_read"] = np.select(
         [
@@ -1927,11 +4177,11 @@ def build_decision_board(period_range, countries, metric_col):
             board["risk_tier"].eq("Monitor"),
         ],
         [
-            "Immediate watchlist: inspect local drivers.",
+            "Immediate watchlist: inspect drivers and compare with local SME context.",
             "Watch closely: pressure is visible or forecast to rise.",
-            "Monitor: at least one warning signal is present.",
+            "Monitor: at least one warning signal is present; check its signal type.",
         ],
-        default="Normal: no major warning signal.",
+        default="Normal: no major warning signal under the current rules.",
     )
     tier_order = {"Alert": 0, "Watch": 1, "Monitor": 2, "Normal": 3}
     board["_tier_order"] = board["risk_tier"].map(tier_order)
@@ -1944,9 +4194,9 @@ def build_decision_board(period_range, countries, metric_col):
 def decision_summary_cards(board):
     if board.empty:
         return [
-            metric_card("Decision board", "not available", "select a later period with enough training data"),
+            metric_card("Monitoring board", "not available", "select a later period with enough training data"),
             metric_card("Watchlist", "n/a", "forecast model unavailable"),
-            metric_card("Model confidence", "n/a", "no country diagnostics"),
+            metric_card("Model agreement", "n/a", "no country diagnostics"),
             metric_card("Main risk", "n/a", "no current signal"),
         ]
     alert_count = int((board["risk_tier"] == "Alert").sum())
@@ -1954,12 +4204,15 @@ def decision_summary_cards(board):
     monitor_count = int((board["risk_tier"] == "Monitor").sum())
     top = board.iloc[0]
     rising = board[board["forecast_direction"] == "Rising"]
-    high_conf = int((board["confidence"] == "High").sum())
+    high_conf = int((board["agreement_quality"] == "High").sum())
+    hidden_monitors = board[board["signal_type"].isin(["Hidden-gap monitor", "Mixed monitor", "Visible or hidden high pressure"])]
+    forward_monitors = board[board["signal_type"].isin(["Rising-forecast monitor", "Mixed monitor", "Forward-looking warning"])]
     return [
-        metric_card("Decision watchlist", f"{alert_count + watch_count + monitor_count}", f"{alert_count} alert, {watch_count} watch, {monitor_count} monitor"),
-        metric_card("Top current signal", str(top["country_name"]), f"{top['risk_tier']} score {format_number(top['risk_score'], 1)}"),
-        metric_card("Forecast rising", f"{len(rising)} countries", "best recent ML model delta is positive"),
-        metric_card("High-confidence reads", f"{high_conf}", "tight ML range and strong agreement"),
+        metric_card("Current read", f"{alert_count + watch_count + monitor_count}", f"{alert_count} alert, {watch_count} watch, {monitor_count} monitor"),
+        metric_card("Hidden-gap monitors", f"{len(hidden_monitors)}", list_country_names(hidden_monitors)),
+        metric_card("Rising-forecast monitors", f"{len(forward_monitors)}", list_country_names(forward_monitors)),
+        metric_card("Top signal", str(top["country_name"]), f"{top['risk_tier']} score {format_number(top['risk_score'], 1)}"),
+        metric_card("High agreement reads", f"{high_conf}", "model agreement quality, not forecast certainty"),
     ]
 
 
@@ -1969,7 +4222,7 @@ def decision_narrative(board):
             className="decision-narrative",
             children=[
                 html.Span("Latest read", className="panel-kicker"),
-                html.P("No decision-board read is available for this period. Move the period slider later or rebuild the forecasting layer."),
+                visual_bullets(["no board for this period", "move the period slider", "or rebuild forecast layer"]),
             ],
         )
     counts = board["risk_tier"].value_counts()
@@ -1977,8 +4230,10 @@ def decision_narrative(board):
     watch_count = int(counts.get("Watch", 0))
     monitor_count = int(counts.get("Monitor", 0))
     rising_count = int((board["forecast_direction"] == "Rising").sum())
-    high_conf = int((board["confidence"] == "High").sum())
+    high_conf = int((board["agreement_quality"] == "High").sum())
     top_names = ", ".join(board.head(3)["country_name"].astype(str).tolist())
+    hidden_monitors = board[board["signal_type"].isin(["Hidden-gap monitor", "Mixed monitor", "Visible or hidden high pressure"])]
+    forward_monitors = board[board["signal_type"].isin(["Rising-forecast monitor", "Mixed monitor", "Forward-looking warning"])]
     model_label = str(board["best_model_label"].dropna().iloc[0]) if board["best_model_label"].notna().any() else "best recent ML model"
     origin = str(board["TIME_PERIOD"].iloc[0])
     target = (
@@ -1986,16 +4241,168 @@ def decision_narrative(board):
         if "forecast_target_period" in board.columns and board["forecast_target_period"].notna().any()
         else "the next half-year"
     )
+    actual_note = "The target-period actual score is available for this historical origin."
+    if "actual_next_score" not in board.columns or not board["actual_next_score"].notna().any():
+        actual_note = f"The {target} actual SME-FPI is not available yet, so this latest read remains an ex-ante monitoring signal."
     return html.Div(
         className="decision-narrative",
         children=[
             html.Span("Latest read", className="panel-kicker"),
-            html.P(
-                f"As of {origin}, the selected view has {alert_count} Alert, {watch_count} Watch, "
-                f"and {monitor_count} Monitor countries. {model_label} projects {rising_count} countries "
-                f"with rising H+1 pressure toward {target}; {high_conf} country reads have high model-agreement confidence. "
-                f"Start with {top_names}, then use the driver heatmap and country cards to explain whether the signal comes from "
-                "current borrower pain, a hidden SME-CISS gap, or forward model momentum."
+            compact_copy_bullets(
+                [
+                    ("Status", f"{origin}: {alert_count} Alert, {watch_count} Watch, {monitor_count} Monitor."),
+                    ("Forecast", f"{model_label} projects {rising_count} countries with rising H+1 pressure toward {target}; {high_conf} reads have high model agreement."),
+                    ("Hidden gap", f"Hidden-gap monitors: {list_country_names(hidden_monitors)}. Rising-forecast monitors: {list_country_names(forward_monitors)}."),
+                    ("Next read", f"Start with {top_names}; explain level, SME-CISS gap, and forecast momentum with the driver tabs."),
+                    ("Actual", actual_note),
+                ],
+                className="compact-guide-list decision-narrative-list",
+                limit=158,
+            ),
+        ],
+    )
+
+
+def standardization_caveat(metric_col, period_range):
+    end_idx = period_range[1]
+    period_label = PERIODS[end_idx] if 0 <= end_idx < len(PERIODS) else "selected period"
+    latest = PANEL[PANEL["period_index"] == end_idx].copy()
+    fixed_names = "not available"
+    if not latest.empty and "Relative_Gap_fixed_baseline" in latest.columns:
+        fixed_names = list_country_names(latest.sort_values("Relative_Gap_fixed_baseline", ascending=False), 3)
+
+    if metric_col == "SME_FPI_equal_z":
+        title = "Retrospective scale is selected"
+        body = (
+            "Equal-weight SME-FPI uses full-sample z-score standardization, which is strong for comparing the whole "
+            "2010s-2020s history but less ideal as a real-time monitoring scale. The fixed-baseline version checks the "
+            "same story against the 2015-S1 to 2019-S2 pre-pandemic reference period."
+        )
+    elif metric_col == "SME_FPI_fixed_baseline_z":
+        title = "Fixed-baseline scale is selected"
+        body = (
+            "This view compares later stress with the 2015-S1 to 2019-S2 reference period. It is easier to defend as a "
+            "real-time monitoring scale, but its numbers are not directly the same as the full-sample equal-weight z-score."
+        )
+    else:
+        title = "Robustness scale is selected"
+        body = (
+            "This view uses an alternative weighting design. It is useful for checking whether the story survives a different "
+            "index construction, but the Monitoring Board should still be read as a diagnostic screen rather than a policy rule."
+        )
+
+    return html.Div(
+        className="standardization-caveat",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Scale caveat", className="panel-kicker"),
+                    html.H3(title),
+                    compact_copy_bullets([("Scale", body)], className="compact-guide-list scale-caveat-list", limit=150),
+                ]
+            ),
+            html.Div(
+                className="scale-compare-list",
+                children=[
+                    html.Strong(f"{period_label} fixed-baseline gap leaders"),
+                    html.Span(fixed_names),
+                    html.Small("Cross-check for full-sample z-score hindsight."),
+                ],
+            ),
+        ],
+    )
+
+
+def risk_rule_guide():
+    rules = [
+        ("Level", "current SME-FPI", "0.20, 0.35, 0.75, 1.00"),
+        ("Gap", "SME-FPI minus CISS", "0.35, 0.75, 1.00"),
+        ("Forward", "H+1 level or delta", "forecast >= 0.35 or delta >= 0.10"),
+        ("Agreement", "ML models rising", "50% or 75% agreement"),
+    ]
+    tiers = [
+        ("Alert", "risk score >= 5", "already high or multi-signal stress"),
+        ("Watch", "risk score >= 3", "visible pressure or stronger forecast warning"),
+        ("Monitor", "risk score >= 1.5", "one warning signal deserves attention"),
+        ("Normal", "risk score < 1.5", "no major warning under current rules"),
+    ]
+    return html.Div(
+        className="risk-rule-guide",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Tier score", className="panel-kicker"),
+                    html.H3("The tier is a monitoring label, not a probability"),
+                    visual_bullets(["stress-level warning", "direction checked separately", "not a probability"]),
+                ],
+            ),
+            html.Div(
+                className="risk-rule-grid",
+                children=[
+                    html.Div(
+                        children=[
+                            html.Strong(name),
+                            html.Span(signal),
+                            html.Small(thresholds),
+                        ]
+                    )
+                    for name, signal, thresholds in rules
+                ],
+            ),
+            html.Div(
+                className="tier-threshold-grid",
+                children=[
+                    html.Div(
+                        className=f"tier-threshold tier-threshold-{tier.lower()}",
+                        children=[html.Strong(tier), html.Span(rule), html.Small(read)]
+                    )
+                    for tier, rule, read in tiers
+                ],
+            ),
+        ],
+    )
+
+
+def no_overclaim_panel():
+    claims = [
+        "causal impact of market stress, macro variables, or bank lending conditions",
+        "firm-level default prediction or production credit-risk scoring",
+        "country-specific market stress measurement from CISS",
+        "automatic policy action without local institutional context",
+        "fully real-time forecasting with every external-source publication lag modeled",
+    ]
+    return html.Div(
+        className="no-claim-panel",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Claim boundary", className="panel-kicker"),
+                    html.H3("What this dashboard does not claim"),
+                    visual_bullets(["monitoring and diagnosis only", "stronger claims deliberately excluded"]),
+                ]
+            ),
+            compact_copy_bullets(claims, className="compact-copy-list no-claim-list", limit=120),
+        ],
+    )
+
+
+def component_family_panel():
+    return html.Div(
+        className="component-family-panel",
+        children=[
+            html.Div(
+                children=[
+                    html.Span("Finance translation", className="panel-kicker"),
+                    html.H3("The six SAFE inputs are easier to read as three pressure families"),
+                    visual_bullets(["formula unchanged", "access pressure", "loan-cost pressure", "finance-salience pressure"]),
+                ]
+            ),
+            html.Div(
+                className="component-family-grid",
+                children=[
+                    concept_card(spec["label"], spec["short"], spec["description"])
+                    for spec in PRESSURE_GROUPS.values()
+                ],
             ),
         ],
     )
@@ -2060,8 +4467,8 @@ def make_risk_history_figure(period_range, countries):
     fig = polish(
         fig,
         chart_title(
-            "Did the decision rule behave consistently through time?",
-            "Historical Alert/Watch/Monitor/Normal assignments from rolling-origin forecast backtests",
+            "Decision tiers through time",
+            "Rolling-origin Alert/Watch/Monitor/Normal assignments",
         ),
         height=470,
         x_title="Forecast origin",
@@ -2090,6 +4497,8 @@ def make_tier_validation_figure():
             customdata=np.column_stack(
                 [
                     validation["n_country_origins"],
+                    validation["mean_current_score"],
+                    validation["mean_actual_next_score"],
                     validation["mean_actual_delta"],
                     validation["mean_forecast_abs_error"],
                     validation["direction_hit_share"] * 100,
@@ -2099,9 +4508,11 @@ def make_tier_validation_figure():
                 "<b>%{x}</b><br>"
                 "Pressure rose next period: %{y:.0f}%<br>"
                 "Country-origin reads: %{customdata[0]:.0f}<br>"
-                "Mean actual delta: %{customdata[1]:.2f}<br>"
-                "Mean forecast abs. error: %{customdata[2]:.2f}<br>"
-                "Directional hit rate: %{customdata[3]:.0f}%<extra></extra>"
+                "Mean current score: %{customdata[1]:.2f}<br>"
+                "Mean next score: %{customdata[2]:.2f}<br>"
+                "Mean actual delta: %{customdata[3]:.2f}<br>"
+                "Mean forecast abs. error: %{customdata[4]:.2f}<br>"
+                "Directional hit rate: %{customdata[5]:.0f}%<extra></extra>"
             ),
         )
     )
@@ -2120,8 +4531,8 @@ def make_tier_validation_figure():
     fig = polish(
         fig,
         chart_title(
-            "How should the risk tiers be trusted?",
-            "Historical validation by tier; bars show next-period pressure-rise share, line shows directional hit rate",
+            "Monitoring tiers separate stress levels, not only acceleration",
+            "Alert can ease next period after high stress; read pressure-rise share together with mean next score and directional hit rate",
         ),
         height=470,
         y_title="Pressure rose next period (%)",
@@ -2164,6 +4575,7 @@ def make_model_rank_heatmap():
         evaluation.pivot_table(index="model_label", columns="origin_period", values="mae", aggfunc="mean")
         .reindex(index=model_order, columns=period_order)
     )
+    stability = forecast_stability_stats()
     fig = go.Figure(
         data=go.Heatmap(
             z=rank_matrix.to_numpy(dtype=float),
@@ -2181,8 +4593,8 @@ def make_model_rank_heatmap():
     fig = polish(
         fig,
         chart_title(
-            "Which forecasting models are stable, not just lucky?",
-            "Rolling-origin MAE rank by model; darker cells indicate stronger relative performance",
+            "Ridge is useful because it is repeatedly competitive, not because it wins once",
+            f"Rolling-origin MAE rank; {stability.get('top_model', 'top model')} wins {stability.get('top_model_wins', 0)} origins and ML family wins {stability.get('ml_family_wins', 0)}",
         ),
         height=480,
         x_title="Forecast origin",
@@ -2195,7 +4607,7 @@ def make_model_rank_heatmap():
 
 def decision_table(board):
     if board.empty:
-        return html.Div(className="source-table-empty", children="Decision board is unavailable for this period.")
+        return html.Div(className="source-table-empty", children="Monitoring board is unavailable for this period.")
     rows = []
     for row in board.head(12).itertuples():
         rows.append(
@@ -2203,11 +4615,12 @@ def decision_table(board):
                 children=[
                     html.Td(str(row.country_name)),
                     html.Td(html.Span(str(row.risk_tier), className=f"risk-badge risk-badge-{str(row.risk_tier).lower()}")),
+                    html.Td(str(row.signal_type)),
                     html.Td(format_number(row.current_score)),
                     html.Td(format_number(row.gap_value)),
                     html.Td(format_number(row.best_model_forecast)),
                     html.Td(f"{format_number(row.ml_model_agreement_rising * 100, 0)}%"),
-                    html.Td(str(row.confidence)),
+                    html.Td(str(row.agreement_quality)),
                     html.Td(str(row.primary_drivers)),
                 ]
             )
@@ -2223,11 +4636,12 @@ def decision_table(board):
                             children=[
                                 html.Th("Country"),
                                 html.Th("Tier"),
+                                html.Th("Signal type"),
                                 html.Th("Current"),
                                 html.Th("Gap"),
                                 html.Th("H+1"),
                                 html.Th("ML rising"),
-                                html.Th("Confidence"),
+                                html.Th("Agreement quality"),
                                 html.Th("Primary drivers"),
                             ]
                         )
@@ -2241,7 +4655,7 @@ def decision_table(board):
 
 def make_decision_scatter(board):
     if board.empty:
-        return empty_figure("Decision board is unavailable for this period.")
+        return empty_figure("Monitoring board is unavailable for this period.")
     fig = px.scatter(
         board,
         x="gap_value",
@@ -2251,7 +4665,15 @@ def make_decision_scatter(board):
         text="REF_AREA",
         category_orders={"risk_tier": ["Alert", "Watch", "Monitor", "Normal"]},
         color_discrete_map=RISK_TIER_COLORS,
-        custom_data=["country_name", "best_model_forecast", "best_model_delta", "ml_model_agreement_rising", "confidence", "primary_drivers"],
+        custom_data=[
+            "country_name",
+            "best_model_forecast",
+            "best_model_delta",
+            "ml_model_agreement_rising",
+            "agreement_quality",
+            "signal_type",
+            "primary_drivers",
+        ],
     )
     fig.update_traces(
         textposition="top center",
@@ -2263,8 +4685,9 @@ def make_decision_scatter(board):
             "Best ML H+1: %{customdata[1]:.2f}<br>"
             "Delta: %{customdata[2]:.2f}<br>"
             "ML rising agreement: %{customdata[3]:.0%}<br>"
-            "Confidence: %{customdata[4]}<br>"
-            "Drivers: %{customdata[5]}<extra></extra>"
+            "Agreement quality: %{customdata[4]}<br>"
+            "Signal type: %{customdata[5]}<br>"
+            "Drivers: %{customdata[6]}<extra></extra>"
         ),
     )
     fig.add_hline(y=0.35, line_dash="dot", line_color="#d19a2e")
@@ -2274,8 +4697,8 @@ def make_decision_scatter(board):
     fig = polish(
         fig,
         chart_title(
-            "Who needs attention, and why?",
-            "Risk tier combines current SME-FPI, hidden SME-CISS gap, H+1 forecast, and ML agreement",
+            "The watchlist separates current pressure, hidden gap, and forward momentum",
+            "Monitoring tier combines current SME-FPI, relative SME-CISS gap, H+1 forecast, and ML agreement",
         ),
         height=520,
         y_title="Current SME-FPI z-score",
@@ -2314,13 +4737,13 @@ def make_agreement_figure(board):
                 "color": "rgba(178,58,53,0.36)",
                 "thickness": 1.6,
             },
-            customdata=np.stack([focus["forecast_direction"], focus["ml_model_agreement_rising"], focus["confidence"]], axis=-1),
+            customdata=np.stack([focus["forecast_direction"], focus["ml_model_agreement_rising"], focus["agreement_quality"]], axis=-1),
             hovertemplate=(
                 "<b>%{y}</b><br>"
                 "Best ML H+1: %{x:.2f}<br>"
                 "%{customdata[0]} pressure<br>"
                 "ML rising agreement: %{customdata[1]:.0%}<br>"
-                "Confidence: %{customdata[2]}<extra></extra>"
+                "Agreement quality: %{customdata[2]}<extra></extra>"
             ),
         )
     )
@@ -2337,7 +4760,7 @@ def make_agreement_figure(board):
     fig = polish(
         fig,
         chart_title(
-            "Does the model suite agree on direction?",
+            "Forecast agreement is shown as a range, not a guarantee",
             "Current score, best ML forecast, and ML min-max range for the highest-risk selected countries",
         ),
         height=500,
@@ -2435,7 +4858,12 @@ def diagnosis_cards(board):
                             ),
                         ],
                     ),
-                    html.P(str(row.primary_drivers)),
+                    html.Small(f"Signal type: {row.signal_type}. Agreement quality: {row.agreement_quality}."),
+                    compact_copy_bullets(
+                        [("Drivers", str(row.primary_drivers))],
+                        className="compact-guide-list diagnosis-driver-list",
+                        limit=150,
+                    ),
                     html.Small(
                         f"{row.recommended_read} Historical direction hit: "
                         f"{format_number(hit_share * 100, 0)}%."
@@ -2795,7 +5223,7 @@ def make_big_cube_trend(period_range, countries, problem, firm_size, sector):
         fig,
         chart_title(
             f"How severe is '{problem}' over time?",
-            "Severity score plus severe-response shares from the 231,231-row SAFE cube",
+            "Severity score plus severe-response shares from the 231,231-row SAFE survey-detail table",
         ),
         height=440,
         y_title="Severe response share (%)",
@@ -2890,7 +5318,7 @@ def kpi_cards(df):
     gap = latest.sort_values("Relative_Gap_equal", ascending=False).iloc[0]
     return [
         metric_card("Main panel", f"{len(PANEL):,} rows", "country x half-year observations"),
-        metric_card("SAFE Q0B cube", f"{BIG_CUBE_ROWS:,} rows", "large survey-response cube"),
+        metric_card("Firm survey detail", f"{BIG_CUBE_ROWS:,} rows", "large grouped SAFE response table"),
         metric_card("Latest period", latest["TIME_PERIOD"].iloc[0], "current dashboard endpoint"),
         metric_card(
             "Highest latest SME-FPI",
@@ -2905,15 +5333,35 @@ def kpi_cards(df):
     ]
 
 
-app = Dash(__name__, title="SME Financing Pain Observatory")
+app = Dash(
+    __name__,
+    title="SME Financing Pain Observatory",
+    assets_folder=str(ASSETS_DIR),
+    assets_url_path="/assets",
+)
 server = app.server
 
 def tab(label, value, children):
+    visual_order = {
+        "start": 1,
+        "decision": 2,
+        "findings": 3,
+        "overview": 4,
+        "forecast": 5,
+        "diagnosis": 6,
+        "methodology": 7,
+        "regimes": 8,
+        "hidden-stress": 9,
+        "explorer": 10,
+        "big-data": 11,
+        "data-preview": 12,
+    }
     return dcc.Tab(
         label=label,
         value=value,
-        className="main-tab",
-        selected_className="main-tab main-tab--selected",
+        className=f"main-tab main-tab-{value}",
+        selected_className=f"main-tab main-tab-{value} main-tab--selected",
+        style={"order": visual_order.get(value, 99)},
         children=html.Div(className=f"tab-content tab-content-{value}", children=children),
     )
 
@@ -2924,15 +5372,20 @@ app.layout = html.Div(
         html.Header(
             className="hero",
             children=[
-                html.Div(
-                    className="hero-copy",
-                    children=[
-                        html.P("Interactive data visualization project", className="eyebrow"),
-                        html.H1("SME Financing Pain Observatory"),
-                        html.P(
-                            "A borrower-side index for detecting when European SMEs report financing pain "
-                            "that is not fully visible in common market-stress benchmarks such as the ECB CISS."
-                        ),
+                    html.Div(
+                        className="hero-copy",
+                        children=[
+                            html.P("SME credit-stress monitoring dashboard", className="eyebrow"),
+                            html.H1("SME Financing Pain Observatory"),
+                            visual_bullets(
+                                [
+                                    "borrower-side SME pain",
+                                    "CISS benchmark gap",
+                                    "current watchlist first",
+                                    "drivers, forecasts, provenance",
+                                ],
+                                className="visual-bullet-row hero-summary-bullets",
+                            ),
                         html.Div(
                             className="hero-insight-grid",
                             children=[
@@ -2963,11 +5416,11 @@ app.layout = html.Div(
                             className="hero-badges",
                             children=[
                                 html.Span("386-row panel"),
-                                html.Span("231k SAFE cube"),
-                                html.Span("PCA + clusters"),
+                                html.Span("231k firm-survey detail"),
+                                html.Span("Decision Board"),
+                                html.Span("Country diagnosis"),
                                 html.Span("CISS benchmark"),
-                                html.Span("Macro + micro predictors"),
-                                html.Span("BLS/MIR/Eurostat forecast layer"),
+                                html.Span("9-model forecast suite"),
                             ],
                         ),
                     ],
@@ -2975,15 +5428,12 @@ app.layout = html.Div(
                 html.Div(
                     className="hero-stack",
                     children=[
+                        hero_monitor_snapshot(),
                         html.Div(
                             className="hero-method",
                             children=[
                                 html.H2("Core idea"),
-                                html.P(
-                                    "CISS is the ECB Composite Indicator of Systemic Stress, a thermometer for stress "
-                                    "inside financial markets. SME-FPI is different: it measures pressure reported by "
-                                    "small and medium-sized firms as borrowers."
-                                ),
+                                visual_bullets(["CISS = market stress", "SME-FPI = borrower pressure", "gap = diagnostic mismatch"]),
                             ],
                         ),
                         html.Div(
@@ -3027,10 +5477,7 @@ app.layout = html.Div(
                                             className="section-heading compact-heading controls-inner-heading",
                                             children=[
                                                 html.H2("Global Controls"),
-                                                html.P(
-                                                    "These controls update the dashboard story. Hover chart elements to see values, "
-                                                    "interpretation labels, coverage, and methodology notes."
-                                                ),
+                                                visual_bullets(["countries", "index version", "period range", "hover for exact values"]),
                                             ],
                                         ),
                                         html.Div(
@@ -3100,19 +5547,19 @@ app.layout = html.Div(
                                                 html.Div(
                                                     children=[
                                                         html.Strong("First read"),
-                                                        html.Span("Use the default equal-weight index and all countries to see the overall pattern."),
+                                                        html.Span("default index + all countries"),
                                                     ],
                                                 ),
                                                 html.Div(
                                                     children=[
                                                         html.Strong("Then focus"),
-                                                        html.Span("Clear countries and select a few countries when exact line-by-line comparison matters."),
+                                                        html.Span("select a few countries for exact comparisons"),
                                                     ],
                                                 ),
                                                 html.Div(
                                                     children=[
                                                         html.Strong("Interpretation rule"),
-                                                        html.Span("Positive SME-CISS gaps mean borrower-side pain is high relative to market stress."),
+                                                        html.Span("positive gap = borrower pain above CISS"),
                                                     ],
                                                 ),
                                             ],
@@ -3124,10 +5571,13 @@ app.layout = html.Div(
                                                 html.Div(
                                                     className="guide-panel-copy",
                                                     children=[
-                                                        html.P(
-                                                            "The dropdown does not change the research question. It changes how the same "
-                                                            "borrower-side financing-pain signal is standardized or weighted. The default "
-                                                            "equal-weight version is the easiest baseline for a first reading."
+                                                        compact_copy_bullets(
+                                                            [
+                                                                ("Same question", "Only the index standardization or weighting changes."),
+                                                                ("Default", "Equal-weight SME-FPI is the clearest first-read baseline."),
+                                                                ("Robustness", "Alternative versions test whether the story survives another scale."),
+                                                            ],
+                                                            className="compact-guide-list",
                                                         ),
                                                     ],
                                                 ),
@@ -3158,20 +5608,84 @@ app.layout = html.Div(
                                                 ),
                                             ],
                                         ),
+                                        research_value_panel(),
                                     ],
                                 ),
                             ],
                         ),
                     ],
                 ),
+                interaction_hub(),
                 dcc.Tabs(
                     id="main-tabs",
-                    value="decision",
+                    value="start",
                     parent_className="tabs-shell",
                     className="main-tabs",
                     children=[
                         tab(
-                            "Decision Board",
+                            "Start Here",
+                            "start",
+                            [
+                                html.Section(
+                                    className="section start-section",
+                                    children=[
+                                        html.Div(
+                                            className="section-heading start-heading",
+                                            children=[
+                                                html.Div(
+                                                    children=[
+                                                        html.H2("Start Here: Self-Guided Project Summary"),
+                                                        visual_bullets(["project question", "finance terms", "headline results", "claim limits"]),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                        professor_submission_panel(),
+                                        tab_guide(
+                                            "What is this final project trying to show?",
+                                            "It builds SME-FPI, a borrower-side financing-pain index from firm survey answers, then checks whether it reveals pressure that a market-stress benchmark can miss.",
+                                            "The dashboard is a diagnostic monitoring product. It does not prove causality, predict firm defaults, or prescribe policy action.",
+                                        ),
+                                        reader_checkpoint(
+                                            "What should the professor remember after five minutes?",
+                                            "SME-FPI measures what firms report as borrowers; CISS measures financial-market stress. The useful signal is when those two objects diverge.",
+                                            "A positive borrower-market gap means SMEs report financing pain above what the market-stress benchmark alone would suggest.",
+                                            "Do not read a positive gap as proof of a hidden financial crisis. It is evidence for closer inspection.",
+                                        ),
+                                        professor_start_cards(),
+                                        html.Div(
+                                            className="start-subsection",
+                                            children=[
+                                                html.Span("Headline findings", className="panel-kicker"),
+                                                html.H3("What the dashboard concludes"),
+                                                latest_findings_cards(),
+                                            ],
+                                        ),
+                                        claim_evidence_matrix(),
+                                        html.Div(
+                                            className="start-subsection reading-path-subsection",
+                                            children=[
+                                                html.Span("Five-minute reading path", className="panel-kicker"),
+                                                html.H3("Read these tabs in this order"),
+                                                visual_bullets(["interactive tabs", "recommended order", "works without live presentation"]),
+                                                professor_reading_path(),
+                                            ],
+                                        ),
+                                        html.Div(
+                                            className="start-subsection",
+                                            children=[
+                                                html.Span("Plain-English glossary", className="panel-kicker"),
+                                                html.H3("Terms the reader needs before looking at the charts"),
+                                                professor_glossary_panel(),
+                                            ],
+                                        ),
+                                        no_overclaim_panel(),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        tab(
+                            "Current Board",
                             "decision",
                             [
                                 html.Section(
@@ -3180,13 +5694,24 @@ app.layout = html.Div(
                                         html.Div(
                                             className="section-heading",
                                             children=[
-                                                html.H2("Decision Board"),
-                                                html.P(
-                                                    "A monitoring-style first screen that answers who needs attention, why the signal appears, "
-                                                    "whether the stress is hidden from CISS, and whether the H+1 model suite expects pressure to rise."
-                                                ),
+                                                html.H2("Current Monitoring Board"),
+                                                visual_bullets(["who needs attention", "why flagged", "hidden from CISS?", "H+1 rising?"]),
                                             ],
                                         ),
+                                        html.Div(id="command-panel-container"),
+                                        defense_question_panel(),
+                                        tab_guide(
+                                            "Which countries deserve attention first?",
+                                            "The board combines current SME-FPI, SME-FPI minus CISS, H+1 forecast direction, and model agreement into a diagnostic tier.",
+                                            "Alert, Watch, Monitor, and Normal are monitoring labels, not policy decisions or causal estimates.",
+                                        ),
+                                        reader_checkpoint(
+                                            "What does a monitoring tier mean?",
+                                            "It is a triage label that organizes evidence from current SME-FPI, the borrower-market gap, H+1 forecast direction, and model agreement.",
+                                            "Use it to decide which countries deserve closer reading, then inspect the driver text and country evidence.",
+                                            "Do not treat Alert, Watch, or Monitor as probabilities of crisis or as automatic policy recommendations.",
+                                        ),
+                                        html.Div(id="standardization-caveat-container"),
                                         html.Div(id="decision-summary-cards", className="metric-grid decision-metric-grid"),
                                         html.Div(id="decision-narrative-container"),
                                         html.Div(
@@ -3195,12 +5720,8 @@ app.layout = html.Div(
                                                 html.Div(
                                                     children=[
                                                         html.Span("Risk rule", className="panel-kicker"),
-                                                        html.H3("Current pain + hidden gap + H+1 forecast + model agreement"),
-                                                        html.P(
-                                                            "Alert, Watch, Monitor, and Normal are diagnostic tiers, not policy decisions. "
-                                                            "They combine standardized current SME-FPI, SME-FPI minus CISS, best recent ML forecast, "
-                                                            "and agreement across Elastic Net, Ridge, Random Forest, and Gradient Boosting."
-                                                        ),
+                                                        html.H3("Current pain + relative gap + H+1 forecast + model agreement"),
+                                                        visual_bullets(["diagnostic tiers", "level + SME-CISS gap", "best H+1 forecast", "model agreement, not certainty"]),
                                                     ],
                                                 ),
                                                 html.Div(
@@ -3214,15 +5735,16 @@ app.layout = html.Div(
                                                 ),
                                             ],
                                         ),
+                                        risk_rule_guide(),
                                         html.Div(
                                             className="two-col",
                                             children=[
                                                 html.Div(
                                                     children=[
-                                                        dcc.Graph(id="decision-scatter-figure", className="chart chart-glow"),
+                                                        loading_graph("decision-scatter-figure", className="chart chart-glow"),
                                                         explanation(
                                                             "Figure note",
-                                                            "The scatter places each country by current borrower-side pain and hidden SME-CISS gap; marker size reflects the diagnostic risk score.",
+                                                            "The scatter places each country by current borrower-side pain and the relative SME-CISS gap; marker size reflects the diagnostic risk score.",
                                                             "This turns the dashboard from descriptive charts into a triage surface for monitoring.",
                                                             "Countries in the upper-right require the most careful reading because borrower pain is high and market stress may not fully show it.",
                                                         ),
@@ -3230,7 +5752,7 @@ app.layout = html.Div(
                                                 ),
                                                 html.Div(
                                                     children=[
-                                                        dcc.Graph(id="agreement-figure", className="chart"),
+                                                        loading_graph("agreement-figure", className="chart"),
                                                         explanation(
                                                             "Figure note",
                                                             "The dumbbell compares current SME-FPI with the best recent ML H+1 forecast, while the error bar shows disagreement across ML models.",
@@ -3246,10 +5768,10 @@ app.layout = html.Div(
                                             children=[
                                                 html.Div(
                                                     children=[
-                                                        dcc.Graph(id="risk-history-figure", className="chart"),
+                                                        loading_graph("risk-history-figure", className="chart"),
                                                         explanation(
                                                             "Validation note",
-                                                            "This heatmap replays the Decision Board through historical forecast origins.",
+                                                            "This heatmap replays the Monitoring Board through historical forecast origins.",
                                                             "It shows whether countries repeatedly appeared as Alert, Watch, or Monitor instead of only reporting the latest status.",
                                                             "Persistent warm cells are more meaningful than one isolated warning cell.",
                                                         ),
@@ -3257,11 +5779,11 @@ app.layout = html.Div(
                                                 ),
                                                 html.Div(
                                                     children=[
-                                                        dcc.Graph(id="tier-validation-figure", className="chart"),
+                                                        loading_graph("tier-validation-figure", className="chart"),
                                                         explanation(
                                                             "Validation note",
                                                             "The tier validation chart compares diagnostic tiers with realized next-period movement.",
-                                                            "This avoids treating the risk tier as a black box: a good monitoring tier should separate high-pressure states while making forecast uncertainty visible.",
+                                                            "This avoids treating the monitoring tier as a black box: a good monitoring tier should separate high-pressure states while making forecast uncertainty visible.",
                                                             "If a high tier often eases next period, interpret it as a stress-level warning rather than a guaranteed acceleration signal.",
                                                         ),
                                                     ],
@@ -3280,7 +5802,7 @@ app.layout = html.Div(
                                                                 html.H3("Country-level diagnosis"),
                                                             ]
                                                         ),
-                                                        html.P("Sorted by tier, risk score, and current SME-FPI. Use the driver column to decide which diagnostic tab to inspect next."),
+                                                        visual_bullets(["tier sorted", "risk score sorted", "driver column points to next tab"]),
                                                     ],
                                                 ),
                                                 html.Div(id="decision-table-container"),
@@ -3291,7 +5813,53 @@ app.layout = html.Div(
                             ],
                         ),
                         tab(
-                            "Overview",
+                            "Defense & Findings",
+                            "findings",
+                            [
+                                html.Section(
+                                    className="section",
+                                    children=[
+                                        html.Div(
+                                            className="section-heading",
+                                            children=[
+                                                html.H2("Defense & Findings"),
+                                                visual_bullets(["evaluation answers", "supported claims", "explicit limits"]),
+                                            ],
+                                        ),
+                                        defense_question_panel(),
+                                        tab_guide(
+                                            "What did we learn from the dashboard?",
+                                            "SME-FPI is most useful as a borrower-side monitoring signal that can diverge from market stress and can be checked against forecasts and historical tiers.",
+                                            "The evidence is descriptive and diagnostic. It should not be read as a causal policy evaluation.",
+                                        ),
+                                        latest_findings_cards(),
+                                        claim_evidence_matrix(),
+                                        research_value_panel(),
+                                        html.Div(
+                                            className="claim-boundary-panel",
+                                            children=[
+                                                html.Div(
+                                                    children=[
+                                                        html.Span("Claim boundary", className="panel-kicker"),
+                                                        html.H3("Strong project claim"),
+                                                        visual_bullets(["borrower signal differs from CISS", "organized by country", "gap, forecast, validation views"]),
+                                                    ],
+                                                ),
+                                                html.Div(
+                                                    children=[
+                                                        html.Span("Do not overclaim", className="panel-kicker"),
+                                                        html.H3("What the dashboard does not prove"),
+                                                        visual_bullets(["no CISS causality", "no deterministic forecast", "no automatic policy response"]),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        tab(
+                            "Index Basics",
                             "overview",
                             [
                                 html.Section(
@@ -3300,14 +5868,41 @@ app.layout = html.Div(
                                         html.Div(
                                             className="section-heading",
                                             children=[
-                                                html.H2("Project Overview"),
-                                                html.P(
-                                                    "Research question: can a borrower-side SME Financing Pain Index reveal "
-                                                    "European SME credit stress that a market-side stress index does not fully capture, "
-                                                    "and can external macro, micro, lender-side, and loan-market data turn it into an early-warning signal?"
+                                                html.H2("SME-FPI Index"),
+                                                visual_bullets(["borrower-side index", "market-side benchmark", "early-warning check", "external predictors stay separate"]),
+                                            ],
+                                        ),
+                                        tab_guide(
+                                            "What is the project about in one sentence?",
+                                            "It builds a borrower-side SME financing pain signal and compares it with market stress, then uses validation and forecasting to judge whether the signal is useful.",
+                                            "The core index stays borrower-side; macro, lender-side, loan-rate, and business-demography data are predictors or checks, not index ingredients.",
+                                        ),
+                                        reader_checkpoint(
+                                            "What exactly is being measured?",
+                                            "SME-FPI measures financing pain reported by firms, using six SAFE survey variables about access, rejection, cost, loan amount, bank willingness, and interest rates.",
+                                            "This makes the index a borrower-side measure, which is why it can differ from market stress indicators.",
+                                            "External macro, BLS, MIR, and Eurostat variables are not part of the core index; they support forecasting and validation.",
+                                        ),
+                                        html.Div(
+                                            className="professor-brief",
+                                            children=[
+                                                html.Div(
+                                                    children=[
+                                                        html.Span("Reader lens", className="panel-kicker"),
+                                                        html.H3("For a data-visualization reader who is new to SME finance"),
+                                                        visual_bullets(["plain-English finance objects", "one argument per visual layer", "monitoring with caveats"]),
+                                                    ],
+                                                ),
+                                                html.Ul(
+                                                    children=[
+                                                        html.Li("SME-FPI is the borrower-side signal built from ECB SAFE survey answers."),
+                                                        html.Li("CISS is the market-side benchmark, useful as a comparison but not an SME survey."),
+                                                        html.Li("Forecasts are early-warning diagnostics, not causal claims or policy decisions."),
+                                                    ],
                                                 ),
                                             ],
                                         ),
+                                        component_family_panel(),
                                         html.Div(
                                             className="overview-brief",
                                             children=[
@@ -3316,10 +5911,7 @@ app.layout = html.Div(
                                                     children=[
                                                         html.Span("One-sentence thesis", className="panel-kicker"),
                                                         html.H3("SME-FPI asks whether small firms feel financing pressure that market stress does not fully show."),
-                                                        html.P(
-                                                            "The project compares two signals: CISS as a market-side stress thermometer, "
-                                                            "and SME-FPI as a borrower-side pressure measure built from ECB SAFE survey answers."
-                                                        ),
+                                                        visual_bullets(["CISS = market-side", "SME-FPI = borrower-side", "SAFE answers build the index"]),
                                                         html.Div(
                                                             className="signal-legend",
                                                             children=[
@@ -3334,10 +5926,10 @@ app.layout = html.Div(
                                                     className="overview-reader-map",
                                                     children=[
                                                         html.Span("How to read the dashboard", className="panel-kicker"),
-                                                        read_step("1", "Start with decisions", "Decision Board shows the current watchlist, risk tier, model agreement, and drivers."),
-                                                        read_step("2", "Compare over time", "Explorer shows whether SME-FPI and CISS move together or diverge."),
-                                                        read_step("3", "Forecast carefully", "Forecast Lab checks ML models against stronger simple baselines before flagging H+1 pressure."),
-                                                        read_step("4", "Explain the country", "Country Diagnosis and Hidden Stress connect risk tiers to drivers and SME-CISS gaps."),
+                                                        read_step("1", "Start with the summary", "Start Here gives the professor the full project logic before the technical tabs."),
+                                                        read_step("2", "Read the current board", "Current Board turns the latest data into a plain-language monitoring list."),
+                                                        read_step("3", "Check the defense", "Defense & Findings answers the grading questions before technical detail."),
+                                                        read_step("4", "Then drill down", "Forecast, Country Diagnosis, Borrower-Market Gap, and Data & Method provide the evidence."),
                                                     ],
                                                 ),
                                             ],
@@ -3350,11 +5942,7 @@ app.layout = html.Div(
                                                     children=[
                                                         html.Span("First-read data map", className="panel-kicker"),
                                                         html.H3("The index stays borrower-side; the forecast uses a wider evidence stack."),
-                                                        html.P(
-                                                            "This separation keeps SME-FPI interpretable. SAFE borrower answers build the core index, "
-                                                            "while macro context, firm-group vulnerability, bank lending conditions, loan rates, and "
-                                                            "future outcomes are used for forecasting and validation."
-                                                        ),
+                                                        visual_bullets(["SAFE builds core index", "macro and lending data predict", "future outcomes validate"]),
                                                     ],
                                                 ),
                                                 html.Div(
@@ -3375,8 +5963,8 @@ app.layout = html.Div(
                                                         pipeline_step(
                                                             "03",
                                                             "Vulnerability",
-                                                            "SAFE cube",
-                                                            "Firm size, sector, and problem-severity slices show who is exposed.",
+                                                            "firm survey detail",
+                                                            "Firm size, sector, and problem-severity slices explain who is exposed.",
                                                         ),
                                                         pipeline_step(
                                                             "04",
@@ -3470,11 +6058,7 @@ app.layout = html.Div(
                                                     children=[
                                                         html.Span("Model definition", className="panel-kicker"),
                                                         html.H3("SME-FPI in plain English"),
-                                                        html.P(
-                                                            "For each country and half-year, available borrower-side SAFE components are standardized, "
-                                                            "averaged, and standardized again. The index is calculated only when at least four "
-                                                            "components are available."
-                                                        ),
+                                                        visual_bullets(["standardize components", "average available inputs", "standardize final index", "at least four components"]),
                                                         dcc.Markdown(
                                                             r"""
 $$
@@ -3513,10 +6097,12 @@ $$
                                                     className="method-block",
                                                     children=[
                                                         html.H3("Dataset shape"),
-                                                        html.P(
-                                                            "The main model uses a country-by-half-year panel with 386 observations. "
-                                                            "The Big Data layer uses a 231,231-row SAFE Q0B cube by country, period, "
-                                                            "firm size, sector, problem category, and response level."
+                                                        compact_copy_bullets(
+                                                            [
+                                                                ("Core panel", "386 country-half-year observations."),
+                                                                ("Survey detail", "231,231 grouped SAFE response cells by country, period, firm size, sector, problem, and response level."),
+                                                            ],
+                                                            className="compact-guide-list method-block-list",
                                                         ),
                                                     ],
                                                 ),
@@ -3524,10 +6110,12 @@ $$
                                                     className="method-block",
                                                     children=[
                                                         html.H3("Design stance"),
-                                                        html.P(
-                                                            "The dashboard keeps overview, exploration, hidden stress, regimes, big-data "
-                                                            "diagnostics, and methodology separated. This follows a monitoring-style workflow: "
-                                                            "see the status, drill into a pattern, then inspect the method."
+                                                        compact_copy_bullets(
+                                                            [
+                                                                ("Separated views", "Index, trends, gaps, PCA, survey detail, and method each keep one job."),
+                                                                ("Workflow", "See status, drill into a pattern, then inspect the method."),
+                                                            ],
+                                                            className="compact-guide-list method-block-list",
                                                         ),
                                                     ],
                                                 ),
@@ -3538,15 +6126,25 @@ $$
                             ],
                         ),
                         tab(
-                            "Explorer",
+                            "Trend Explorer",
                             "explorer",
                             [
+                                html.Section(
+                                    className="section section-compact",
+                                    children=[
+                                        tab_guide(
+                                            "Do SME-FPI and CISS move together over time?",
+                                            "The Trend Explorer separates temporal movement, robustness across weighting choices, and component-level country-period structure.",
+                                            "The shaded distribution bands are descriptive interquartile ranges, not statistical confidence intervals.",
+                                        ),
+                                    ],
+                                ),
                                 html.Section(
                                     className="section two-col",
                                     children=[
                                         html.Div(
                                             children=[
-                                                dcc.Graph(id="time-series-figure", className="chart"),
+                                                loading_graph("time-series-figure", className="chart"),
                                                 explanation(
                                                     "Figure note",
                                                     "The line chart compares selected countries' SME-FPI with the common CISS benchmark. When many countries are selected, it switches to a median line, middle-50% band, and latest high-stress highlights.",
@@ -3557,7 +6155,7 @@ $$
                                         ),
                                         html.Div(
                                             children=[
-                                                dcc.Graph(id="robustness-figure", className="chart"),
+                                                loading_graph("robustness-figure", className="chart"),
                                                 explanation(
                                                     "Figure note",
                                                     "This chart compares equal-weight, fixed-baseline, PCA-weighted, and reliability-weighted versions.",
@@ -3575,13 +6173,10 @@ $$
                                             className="section-heading",
                                             children=[
                                                 html.H2("Animated Stress Motion"),
-                                                html.P(
-                                                    "This animation plays the country-half-year panel like a time-lapse. Each country "
-                                                    "moves through the space between market-side CISS and borrower-side SME-FPI."
-                                                ),
+                                                visual_bullets(["country-half-year time-lapse", "CISS x-axis", "SME-FPI y-axis", "movement between regimes"]),
                                             ],
                                         ),
-                                        dcc.Graph(id="animated-stress-figure", className="chart"),
+                                        loading_graph("animated-stress-figure", className="chart"),
                                         explanation(
                                             "Figure note",
                                             "Each frame is one half-year period. Countries above the diagonal have borrower-side SME financing pain above the CISS benchmark.",
@@ -3594,14 +6189,14 @@ $$
                                     className="section",
                                     children=[
                                         html.Div(className="section-heading", children=[html.H2("Country-Period Structure")]),
-                                        dcc.Graph(id="heatmap-figure", className="chart"),
+                                        loading_graph("heatmap-figure", className="chart"),
                                         explanation(
                                             "Figure note",
                                             "The heatmap displays SME-FPI values across countries and half-year periods.",
                                             "Heatmaps are efficient for matrix-like comparisons where both rows and columns matter.",
                                             "Long red bands suggest persistent borrower-side pressure, while isolated red cells suggest shorter stress episodes.",
                                         ),
-                                        dcc.Graph(id="component-heatmap-figure", className="chart"),
+                                        loading_graph("component-heatmap-figure", className="chart"),
                                         explanation(
                                             "Figure note",
                                             "This component heatmap shows which standardized variables drive the selected countries' index levels.",
@@ -3613,7 +6208,7 @@ $$
                             ],
                         ),
                         tab(
-                            "Forecast",
+                            "Forecast & Validation",
                             "forecast",
                             [
                                 html.Section(
@@ -3624,12 +6219,8 @@ $$
                                             children=[
                                                 html.Div(
                                                     children=[
-                                                        html.H2("Forecast Lab"),
-                                                        html.P(
-                                                            "A one-half-year-ahead early-warning experiment that compares Elastic Net, Ridge, "
-                                                            "Random Forest, and Gradient Boosting using SME-FPI plus macro, micro, lender-side, "
-                                                            "and loan-market predictors, then checks them against stronger simple baselines."
-                                                        ),
+                                                        html.H2("Forecast Check"),
+                                                        visual_bullets(["H+1 early-warning test", "regularized + tree ML", "external predictors", "strong baseline check"]),
                                                     ],
                                                 ),
                                                 html.Div(
@@ -3639,12 +6230,26 @@ $$
                                                         html.Span("Ridge"),
                                                         html.Span("Random Forest"),
                                                         html.Span("Gradient Boosting"),
+                                                        html.Span("ARIMA/ARIMAX"),
                                                         html.Span("H+1 forecast"),
                                                         html.Span("strong baseline check"),
                                                     ],
                                                 ),
                                             ],
                                         ),
+                                        tab_guide(
+                                            "Can current information forecast next half-year SME-FPI?",
+                                            "Ridge is the current best recent ML model, but its edge over the strongest benchmark is small; the cards and charts keep that comparison visible.",
+                                            "This is a pseudo-real-time rolling-origin design: future values are blocked, but release-specific publication lags are not fully modeled. ARIMA/ARIMAX are benchmarks; GARCH and seasonal SARIMA are not headline models because the data are semiannual and short by country.",
+                                        ),
+                                        reader_checkpoint(
+                                            "What question should the forecast answer?",
+                                            "Whether current information gives any early-warning value for next half-year SME-FPI beyond simple persistence and compact time-series baselines.",
+                                            "The strongest evidence is not the model name; it is the out-of-sample MAE/RMSE and whether ML repeatedly beats the strongest benchmark.",
+                                            "Because recent ML gains are modest, the forecast should support the diagnosis rather than replace the descriptive evidence.",
+                                        ),
+                                        forecast_audit_card(),
+                                        forecast_defense_panel(),
                                         html.Div(className="metric-grid forecast-metric-grid", children=forecasting_summary_cards()),
                                         html.Div(
                                             className="forecast-stack-panel",
@@ -3654,11 +6259,7 @@ $$
                                                     children=[
                                                         html.Span("Predictor stack", className="panel-kicker"),
                                                         html.H3("What the model is allowed to know at the forecast origin"),
-                                                        html.P(
-                                                            "The forecast uses current and lagged information available at the selected period. "
-                                                            "Future outcome columns are blocked from training, and the right panel compares "
-                                                            "each model against naive, country mean, country AR(1), momentum, and pooled lag OLS baselines."
-                                                        ),
+                                                        visual_bullets(["current + lagged info only", "future columns blocked", "naive / AR(1) / ARIMA baselines", "publication-lag caveat visible"]),
                                                     ],
                                                 ),
                                                 forecast_feature_list(),
@@ -3668,26 +6269,57 @@ $$
                                             className="forecast-caveat",
                                             children=[
                                                 html.Strong("Why this model suite?"),
-                                                html.Span(
-                                                    "The panel has 386 country-period observations, so the dashboard uses compact regularized "
-                                                    "linear models plus tree-based nonlinear models. This gives a stronger ML story without "
-                                                    "pretending the sample can support a large neural network."
+                                                visual_bullets(["386 observations", "compact linear models", "tree-based nonlinear check", "no production credit-risk claim"]),
+                                            ],
+                                        ),
+                                        forecast_view_selector(),
+                                        html.Div(
+                                            id="forecast-view-benchmark",
+                                            className="forecast-view-panel forecast-view-panel-benchmark",
+                                            children=[
+                                                loading_graph("baseline-dominance-figure", figure=make_baseline_dominance_figure(), className="chart"),
+                                                explanation(
+                                                    "Benchmark note",
+                                                    "This bar chart asks whether the best ML model beats the strongest non-ML benchmark in each rolling-origin window.",
+                                                    "It prevents the dashboard from over-selling ML when persistence, pooled OLS, or ARIMA-style benchmarks are competitive.",
+                                                    "Positive bars are useful evidence for ML; negative or small bars mean the forecast should be read mainly as a diagnostic consistency check.",
+                                                ),
+                                                loading_graph("model-rank-figure", className="chart"),
+                                                explanation(
+                                                    "Model stability note",
+                                                    "The rank heatmap checks whether a model performs consistently across rolling-origin windows.",
+                                                    "This matters because the best recent model should not be trusted only because it won one period by chance.",
+                                                    "Stable regularized models are usually preferable in this small country-period panel unless a nonlinear model repeatedly beats the simple baselines.",
                                                 ),
                                             ],
                                         ),
-                                        dcc.Graph(id="forecast-figure", className="chart chart-glow"),
-                                        explanation(
-                                            "Figure note",
-                                            "The left panel forecasts next half-year SME-FPI from the selected period using the best recent ML model. The right panel compares Elastic Net, Ridge, Random Forest, Gradient Boosting, and five simple baselines.",
-                                            "A country-level dumbbell plus model leaderboard is clearer than a dense projection because the data are a small country-period panel.",
-                                            "Use the forecast to flag countries for attention, then use the historical and component charts to explain why.",
+                                        html.Div(
+                                            id="forecast-view-uncertainty",
+                                            className="forecast-view-panel forecast-view-panel-uncertainty",
+                                            style={"display": "none"},
+                                            children=[
+                                                loading_graph("forecast-loss-figure", className="chart"),
+                                                explanation(
+                                                    "Loss note",
+                                                    "This is the forecast-error view: it reports rolling-origin out-of-sample MAE and RMSE, not training loss.",
+                                                    "MAE is the clearest main loss metric here because SME-FPI is standardized; one MAE point means one standardized-index point of average miss.",
+                                                    "The country bars show where the best current model has historically been less reliable, so the forecast can be trusted more cautiously for those countries.",
+                                                ),
+                                            ],
                                         ),
-                                        dcc.Graph(id="model-rank-figure", className="chart"),
-                                        explanation(
-                                            "Model stability note",
-                                            "The rank heatmap checks whether a model performs consistently across rolling-origin windows.",
-                                            "This matters because the best recent model should not be trusted only because it won one period by chance.",
-                                            "Stable regularized models are usually preferable in this small country-period panel unless a nonlinear model repeatedly beats the simple baselines.",
+                                        html.Div(
+                                            id="forecast-view-point",
+                                            className="forecast-view-panel forecast-view-panel-point",
+                                            style={"display": "none"},
+                                            children=[
+                                                loading_graph("forecast-figure", className="chart chart-glow"),
+                                                explanation(
+                                                    "Figure note",
+                                                    "The top panel forecasts next half-year SME-FPI from the selected period using the best recent ML model. The bottom panel compares Elastic Net, Ridge, Random Forest, Gradient Boosting, simple baselines, and ARIMA/ARIMAX benchmarks.",
+                                                    "A country-level dumbbell plus model leaderboard is clearer than a dense projection because the data are a small country-period panel.",
+                                                    "Use the forecast to flag countries for attention, then use the historical and component charts to explain why.",
+                                                ),
+                                            ],
                                         ),
                                     ],
                                 ),
@@ -3704,11 +6336,13 @@ $$
                                             className="section-heading",
                                             children=[
                                                 html.H2("Country Diagnosis"),
-                                                html.P(
-                                                    "A drill-down view for the countries with the strongest current diagnostic signal. "
-                                                    "Each card links the risk tier to current SME-FPI, hidden gap, forecast direction, model agreement, and top drivers."
-                                                ),
+                                                visual_bullets(["strongest current signals", "tier + current level", "gap + forecast direction", "agreement + drivers"]),
                                             ],
+                                        ),
+                                        tab_guide(
+                                            "Why is a country flagged?",
+                                            "Country cards bundle the visible evidence: current level, relative SME-CISS gap, forecast direction, model agreement, and driver variables.",
+                                            "A country can be important even without an Alert tier if the relative gap or forecast momentum is moving in the wrong direction.",
                                         ),
                                         html.Div(id="diagnosis-card-board"),
                                         html.Div(
@@ -3716,12 +6350,12 @@ $$
                                             children=[
                                                 html.Div(
                                                     children=[
-                                                        dcc.Graph(id="driver-heatmap-figure", className="chart"),
+                                                        loading_graph("driver-heatmap-figure", className="chart"),
                                                         explanation(
                                                             "Figure note",
                                                             "The heatmap standardizes drivers within the displayed countries, so color shows which factors are relatively high in that watchlist group.",
                                                             "This turns the index from a single score into a country explanation layer.",
-                                                            "Use it to separate borrower-side survey pressure from hidden gap and forecast momentum.",
+                                                            "Use it to separate borrower-side survey pressure from relative gap and forecast momentum.",
                                                         ),
                                                     ],
                                                 ),
@@ -3730,10 +6364,7 @@ $$
                                                     children=[
                                                         html.Span("How to use this view", className="panel-kicker"),
                                                         html.H3("Read country cards as evidence bundles"),
-                                                        html.P(
-                                                            "A country is not flagged because of one metric alone. The tier combines level, gap, forecast direction, and model agreement. "
-                                                            "The driver text names the most important visible reasons, then the Explorer, Hidden Stress, Forecast, and Big Data Cube tabs provide the detailed evidence."
-                                                        ),
+                                                        visual_bullets(["not one metric", "level + gap + forecast + agreement", "drivers point to evidence tabs"]),
                                                         html.Div(
                                                             className="diagnosis-rule-list",
                                                             children=[
@@ -3752,7 +6383,7 @@ $$
                             ],
                         ),
                         tab(
-                            "Hidden Stress",
+                            "Borrower-Market Gap",
                             "hidden-stress",
                             [
                                 html.Section(
@@ -3762,12 +6393,21 @@ $$
                                             className="section-heading",
                                             children=[
                                                 html.H2("Geographic Snapshot"),
-                                                html.P(
-                                                    "A country-level view of the latest available period inside the selected range."
-                                                ),
+                                                visual_bullets(["latest selected period", "country comparison", "equal-size tiles"]),
                                             ],
                                         ),
-                                        dcc.Graph(id="map-figure", className="chart"),
+                                        tab_guide(
+                                            "Where is borrower-side stress above the market-stress benchmark?",
+                                            "Positive SME-CISS gaps show countries where borrower-reported financing pain is above the common market-stress benchmark.",
+                                            "CISS is euro-area market stress, not a country-specific SME credit survey, so the gap is a diagnostic comparison rather than a measurement error.",
+                                        ),
+                                        reader_checkpoint(
+                                            "How should I read the gap?",
+                                            "A positive gap means SME-FPI is high relative to CISS; the borrower survey is showing more pressure than the market-stress benchmark.",
+                                            "This is the central diagnostic comparison in the project because it links the borrower-side and market-side measurement objects.",
+                                            "The gap does not prove that CISS is wrong or that a hidden crisis exists; it flags a mismatch worth explaining.",
+                                        ),
+                                        loading_graph("map-figure", className="chart"),
                                         explanation(
                                             "Figure note",
                                             "The figure combines a muted geographic map with an equal-size country tile view for the latest period inside the chosen range.",
@@ -3781,7 +6421,7 @@ $$
                                     children=[
                                         html.Div(
                                             children=[
-                                                dcc.Graph(id="gap-ranking-figure", className="chart"),
+                                                loading_graph("gap-ranking-figure", className="chart"),
                                                 explanation(
                                                     "Figure note",
                                                     "The ranking shows where SME-FPI is high relative to the common euro-area CISS benchmark.",
@@ -3792,7 +6432,7 @@ $$
                                         ),
                                         html.Div(
                                             children=[
-                                                dcc.Graph(id="bubble-gap-figure", className="chart"),
+                                                loading_graph("bubble-gap-figure", className="chart"),
                                                 explanation(
                                                     "Figure note",
                                                     "The bubble chart places market stress on the x-axis and borrower-side SME pain on the y-axis. With many countries selected, it uses the latest period only.",
@@ -3806,26 +6446,37 @@ $$
                             ],
                         ),
                         tab(
-                            "Regimes",
+                            "PCA Analysis",
                             "regimes",
                             [
+                                html.Section(
+                                    className="section section-compact",
+                                    children=[
+                                        pca_answer_panel(),
+                                        tab_guide(
+                                            "Does PCA support the structure of the SME-FPI index?",
+                                            "PCA checks whether borrower-side SAFE components move together and whether the main index story is robust to data-driven weighting.",
+                                            "PCA groups are descriptive patterns, not causal classes or supervised predictions.",
+                                        ),
+                                    ],
+                                ),
                                 html.Section(
                                     className="section two-col",
                                     children=[
                                         html.Div(
                                             children=[
-                                                dcc.Graph(id="pca-scatter-figure", className="chart"),
+                                                loading_graph("pca-scatter-figure", className="chart"),
                                                 explanation(
                                                     "Figure note",
-                                                    "The PCA scatter groups country-period observations into financing-pain regimes.",
+                                                    "The PCA scatter groups country-period observations into descriptive financing-pain patterns.",
                                                     "A scatterplot is suitable because PCA produces two continuous dimensions for multivariate structure.",
-                                                    "Clusters are descriptive regimes, not causal classes; they help explain recurring stress patterns.",
+                                                    "Distance means similarity in component structure, not causality or an expert-labeled class.",
                                                 ),
                                             ],
                                         ),
                                         html.Div(
                                             children=[
-                                                dcc.Graph(id="pca-circle-figure", figure=make_pca_circle(), className="chart"),
+                                                loading_graph("pca-circle-figure", figure=make_pca_circle(), className="chart"),
                                                 explanation(
                                                     "Figure note",
                                                     "The correlation circle shows how each SME-FPI component loads on PC1 and PC2.",
@@ -3844,11 +6495,8 @@ $$
                                             children=[
                                                 html.Div(
                                                     children=[
-                                                        html.H2("3D PCA Regime Explorer"),
-                                                        html.P(
-                                                            "A rotating exploratory view for multidimensional data analysis. It is useful "
-                                                            "for inspection, but the 2D PCA scatter and validation chart remain the primary evidence."
-                                                        ),
+                                                        html.H2("3D PCA Analysis Explorer"),
+                                                        visual_bullets(["exploratory rotation", "PC1 + PC2 + stress metric", "2D views remain primary"]),
                                                     ]
                                                 ),
                                                 html.Div(
@@ -3868,10 +6516,10 @@ $$
                                                 ),
                                             ],
                                         ),
-                                        dcc.Graph(id="pca-3d-figure", className="chart"),
+                                        loading_graph("pca-3d-figure", className="chart"),
                                         explanation(
                                             "Figure note",
-                                            "The 3D plot combines PC1, PC2, and one selected stress metric. Color still represents the descriptive cluster regime.",
+                                            "The 3D plot combines PC1, PC2, and one selected stress metric. Color still represents the descriptive component group.",
                                             "This helps show whether clusters are also separated by stress level or by the SME-CISS gap.",
                                             "It should be treated as an exploratory view because 3D perspective can distort exact visual distance.",
                                         ),
@@ -3880,7 +6528,7 @@ $$
                             ],
                         ),
                         tab(
-                            "Big Data Cube",
+                            "Firm Survey Detail",
                             "big-data",
                             [
                                 html.Section(
@@ -3889,25 +6537,33 @@ $$
                                         html.Div(
                                             className="section-heading",
                                             children=[
-                                                html.H2("Big Data SAFE Cube Diagnostics"),
-                                                html.P(
-                                                    "The 386-row panel builds the index. The 231,231-row SAFE Q0B cube is used as a larger diagnostic layer by country, period, firm size, sector, problem, and response level."
-                                                ),
+                                                html.H2("Firm Survey Detail"),
+                                                visual_bullets(["386-row index panel", "231,231-row survey detail", "firm size", "sector and problem slices"]),
                                             ],
                                         ),
+                                        tab_guide(
+                                            "Which firm groups and business problems sit behind the index story?",
+                                            "The firm-survey detail table is a diagnostic drill-down layer for firm size, sector, problem type, and response severity.",
+                                            "This detailed table is not the core SME-FPI formula; it explains patterns after the borrower-side index has flagged them.",
+                                        ),
+                                        firm_survey_pressure_panel(),
                                         html.Details(
                                             className="guide-panel compact-details cube-guide",
                                             children=[
-                                                html.Summary("Big Data Cube guide"),
+                                                html.Summary("Firm survey detail guide"),
                                                 html.Div(
                                                     className="guide-panel-copy",
                                                     children=[
-                                                        html.H3("What does 'Big Data Cube' mean here?"),
-                                                        html.P(
-                                                            "A cube is a multi-dimensional survey table. Each slice combines country, half-year period, firm size, sector, problem category, and response level. It is not used to build the core SME-FPI; it explains where the broader pressure appears."
-                                                        ),
-                                                        html.P(
-                                                            "Coverage caveat: Slovakia enters the main SME-FPI panel in 2014-S1. In the Big Data Cube, smaller countries such as Slovakia are mainly available at the SME / all-sector slice, so very detailed firm-size or sector filters may exclude them."
+                                                        html.H3("What does the firm survey detail table mean here?"),
+                                                        compact_copy_bullets(
+                                                            [
+                                                                ("Meaning", "Grouped SAFE detail combines country, period, firm size, sector, problem category, and response level."),
+                                                                ("Formula boundary", "It does not build the core SME-FPI; it explains where pressure appears."),
+                                                                ("Coverage", "Smaller countries such as Slovakia may only appear in broader SME or all-sector slices."),
+                                                                ("Reader use", "Use it to ask which firm size, sector, or problem sits behind a country flag."),
+                                                            ],
+                                                            className="compact-guide-list cube-guide-list",
+                                                            limit=150,
                                                         ),
                                                     ],
                                                 ),
@@ -3921,7 +6577,7 @@ $$
                                                         ),
                                                         concept_card(
                                                             "Dimensions",
-                                                            "cube axes",
+                                                            "survey slices",
                                                             "Country, period, firm size, sector, firm age, problem type, and answer severity level.",
                                                         ),
                                                         concept_card(
@@ -3941,12 +6597,12 @@ $$
                                         html.Details(
                                             className="local-control-panel local-filter-drawer",
                                             children=[
-                                                html.Summary("SAFE cube filters"),
+                                                html.Summary("Firm survey filters"),
                                                 html.Div(
                                                     className="local-control-grid",
                                                     children=[
                                                         control(
-                                                            "SAFE problem",
+                                                            "Business problem",
                                                             dcc.Dropdown(
                                                                 id="problem-select",
                                                                 options=[{"label": problem, "value": problem} for problem in PROBLEMS],
@@ -3981,10 +6637,10 @@ $$
                                             children=[
                                                 html.Div(
                                                     children=[
-                                                        dcc.Graph(id="big-cube-trend-figure", className="chart"),
+                                                        loading_graph("big-cube-trend-figure", className="chart"),
                                                         explanation(
                                                             "Figure note",
-                                                            "The trend follows severity and severe-response shares for the selected SAFE problem.",
+                                                            "The trend follows severity and severe-response shares for the selected business problem.",
                                                             "A line chart shows whether problem pressure rises, falls, or persists through time; separate y-axes avoid mixing a 1-10 score with percentage shares.",
                                                             "Top-box and high-pressure shares are included because they are safer for ordinal survey answers than relying only on the exact mean score.",
                                                         ),
@@ -3992,10 +6648,10 @@ $$
                                                 ),
                                                 html.Div(
                                                     children=[
-                                                        dcc.Graph(id="problem-bar-figure", className="chart"),
+                                                        loading_graph("problem-bar-figure", className="chart"),
                                                         explanation(
                                                             "Figure note",
-                                                            "The bar chart compares named problem categories in the large SAFE cube; the non-specific Other category is excluded.",
+                                                            "The bar chart compares named problem categories in the large SAFE survey-detail table; the non-specific Other category is excluded.",
                                                             "Sorting supports fast comparison and reduces unnecessary visual search.",
                                                             "It shows whether access to finance is the dominant pressure or part of a broader business-stress mix.",
                                                         ),
@@ -4003,7 +6659,7 @@ $$
                                                 ),
                                             ],
                                         ),
-                                        dcc.Graph(id="size-problem-heatmap-figure", className="chart"),
+                                        loading_graph("size-problem-heatmap-figure", className="chart"),
                                         explanation(
                                             "Figure note",
                                             "The heatmap compares high-pressure shares across firm sizes and named problem categories, excluding the non-specific Other category.",
@@ -4015,13 +6671,156 @@ $$
                             ],
                         ),
                         tab(
-                            "Methodology",
+                            "Data Preview",
+                            "data-preview",
+                            [
+                                html.Section(
+                                    className="section data-preview-section",
+                                    children=[
+                                        html.Div(
+                                            className="section-heading",
+                                            children=[
+                                                html.H2("Data Preview"),
+                                                visual_bullets(["actual files", "raw + processed layers", "structure before charts"]),
+                                            ],
+                                        ),
+                                        tab_guide(
+                                            "What do the actual data files look like?",
+                                            "The tab provides a quick audit window into raw inputs, processed panels, forecast outputs, and validation files.",
+                                            "Previewed rows are for transparency and structure checking; they are not a substitute for the charts or validation results.",
+                                        ),
+                                        html.Div(
+                                            className="source-catalog-panel data-preview-intro",
+                                            children=[
+                                                html.Div(
+                                                    className="source-catalog-copy",
+                                                    children=[
+                                                        html.Span("Dataset transparency", className="panel-kicker"),
+                                                        html.H3("Show the first rows, then explain what each file does"),
+                                                        visual_bullets(["raw files = audit trail", "processed files = dashboard layers", "forecast outputs = validation evidence"]),
+                                                    ],
+                                                ),
+                                                html.Div(
+                                                    className="concept-grid data-preview-principles",
+                                                    children=[
+                                                        concept_card(
+                                                            "Raw inputs",
+                                                            "source layer",
+                                                            "SAFE, CISS, World Bank, BLS, MIR, and Eurostat files before dashboard-specific modeling.",
+                                                        ),
+                                                        concept_card(
+                                                            "Processed panels",
+                                                            "analysis layer",
+                                                            "Country-period tables used to build SME-FPI, gaps, PCA, clusters, forecasts, and diagnostics.",
+                                                        ),
+                                                        concept_card(
+                                                            "Validation outputs",
+                                                            "evidence layer",
+                                                            "Model evaluation, historical monitoring tiers, and forecast-error tables used to defend the story.",
+                                                        ),
+                                                        concept_card(
+                                                            "Preview limit",
+                                                            "readability",
+                                                            "Rows are analytical cells or file records, not always individual firms. The table intentionally shows only the top rows so structure is inspectable.",
+                                                        ),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                        html.Div(
+                                            className="local-control-panel data-preview-control-panel",
+                                            children=[
+                                                html.Div(
+                                                    className="inline-heading",
+                                                    children=[
+                                                        html.Div(
+                                                            children=[
+                                                                html.Span("Preview controls", className="panel-kicker"),
+                                                                html.H3("Choose a dataset and how many top rows to show"),
+                                                            ]
+                                                        ),
+                                                        visual_bullets(["start with SME-FPI panel", "compare SAFE/CISS inputs", "inspect forecast validation"]),
+                                                    ],
+                                                ),
+                                                html.Div(
+                                                    className="local-control-grid data-preview-controls",
+                                                    children=[
+                                                        control(
+                                                            "Dataset",
+                                                            dcc.Dropdown(
+                                                                id="dataset-select",
+                                                                options=dataset_preview_options(),
+                                                                value="sme_fpi_panel_v2",
+                                                                clearable=False,
+                                                            ),
+                                                        ),
+                                                        control(
+                                                            "Top rows",
+                                                            dcc.Dropdown(
+                                                                id="dataset-row-count",
+                                                                options=DATASET_ROW_OPTIONS,
+                                                                value=10,
+                                                                clearable=False,
+                                                            ),
+                                                        ),
+                                                    ],
+                                                ),
+                                            ],
+                                        ),
+                                        dcc.Loading(
+                                            className="dataset-loading",
+                                            type="circle",
+                                            color="#2f6f9f",
+                                            children=html.Div(id="dataset-preview-container"),
+                                        ),
+                                        explanation(
+                                            "Reading note",
+                                            "The preview is not a separate analysis result; it is a quick audit window into the files already used by the charts.",
+                                            "Processed tables are easier to read because they have dashboard-ready country, period, model, and metric columns.",
+                                            "Raw files can look wider or more cryptic because they preserve source-specific naming and response coding.",
+                                        ),
+                                    ],
+                                ),
+                            ],
+                        ),
+                        tab(
+                            "Data & Method",
                             "methodology",
                             [
                                 html.Section(
                                     className="section",
                                     children=[
-                                        html.Div(className="section-heading", children=[html.H2("Validation and Methodology")]),
+                                        html.Div(className="section-heading", children=[html.H2("Data, Validation, and Method")]),
+                                        tab_guide(
+                                            "How is the evidence produced and checked?",
+                                            "The method keeps the SME-FPI core separate from external predictors, then validates the signal with future outcomes, forecasts, and historical tier replay.",
+                                            "The methodology supports a monitoring product claim, not a causal finance model or a policy prescription.",
+                                        ),
+                                        reader_checkpoint(
+                                            "What makes the project credible?",
+                                            "The index ingredients, data roles, pipeline, model baselines, forecast loss, and limitations are all visible instead of being hidden behind the final dashboard.",
+                                            "This lets the reader separate the core borrower-side index from forecast-only predictors and robustness checks.",
+                                            "The project remains descriptive and diagnostic; it does not contain an identification strategy for causal inference.",
+                                        ),
+                                        data_role_taxonomy_panel(),
+                                        defense_question_panel(),
+                                        data_lineage_map(),
+                                        claim_evidence_matrix(),
+                                        html.Div(
+                                            className="method-pipeline-panel",
+                                            children=[
+                                                html.Div(
+                                                    className="source-catalog-copy",
+                                                    children=[
+                                                        html.Span("Reproducible pipeline", className="panel-kicker"),
+                                                        html.H3("From source files to dashboard evidence"),
+                                                        visual_bullets(["harmonize raw sources", "build borrower-side core", "external data predict/check", "validation bounds claims"]),
+                                                    ],
+                                                ),
+                                                methodology_pipeline(),
+                                            ],
+                                        ),
+                                        no_overclaim_panel(),
                                         html.Div(
                                             className="source-catalog-panel",
                                             children=[
@@ -4030,14 +6829,22 @@ $$
                                                     children=[
                                                         html.Span("Data and method inventory", className="panel-kicker"),
                                                         html.H3("What data is used, and where it enters the story"),
-                                                        html.P(
-                                                            "The table separates index construction from forecasting and validation. "
-                                                            "This is intentional: SME-FPI Core remains a borrower-side SAFE index, while "
-                                                            "macro, micro, lender-side, and loan-market variables are predictors or checks."
+                                                        visual_bullets(["core index inputs", "forecast-only predictors", "validation targets", "raw audit trail"]),
+                                                    ],
+                                                ),
+                                                html.Div(
+                                                    className="source-role-filter",
+                                                    children=[
+                                                        html.Span("Filter by role"),
+                                                        dcc.Dropdown(
+                                                            id="source-role-filter",
+                                                            options=source_role_options(),
+                                                            value="all",
+                                                            clearable=False,
                                                         ),
                                                     ],
                                                 ),
-                                                source_catalog_table(),
+                                                html.Div(id="source-catalog-table-container", children=source_catalog_table(role_filter="all")),
                                             ],
                                         ),
                                         html.Div(
@@ -4047,8 +6854,13 @@ $$
                                                     className="guide-panel-copy",
                                                     children=[
                                                         html.H3("How to read the validation y-axis"),
-                                                        html.P(
-                                                            "Each row is a future target used to check whether today's SME-FPI is aligned with later stress. H+1 means one half-year ahead; H+2 means two half-years ahead."
+                                                        compact_copy_bullets(
+                                                            [
+                                                                ("Rows", "Future targets used to test whether today's SME-FPI aligns with later stress."),
+                                                                ("H+1", "One half-year ahead."),
+                                                                ("H+2", "Two half-years ahead."),
+                                                            ],
+                                                            className="compact-guide-list validation-axis-list",
                                                         ),
                                                     ],
                                                 ),
@@ -4066,7 +6878,7 @@ $$
                                                                 ),
                                                                 concept_card(
                                                                     "Access severity H+1 / H+2",
-                                                                    "SAFE cube",
+                                                                    "SAFE survey detail",
                                                                     "Future 1-10 severity score for access to finance as a business problem.",
                                                                 ),
                                                                 concept_card(
@@ -4096,7 +6908,7 @@ $$
                                             ],
                                         ),
                                         html.Div(className="metric-grid validation-metric-grid", children=validation_summary_cards()),
-                                        dcc.Graph(id="validation-figure", figure=make_validation_chart(), className="chart"),
+                                        loading_graph("validation-figure", figure=make_validation_chart(), className="chart"),
                                         explanation(
                                             "Figure note",
                                             "The validation chart compares each index version with later stress-related outcomes shown on the y-axis.",
@@ -4116,6 +6928,7 @@ $$
                                                                 html.Li("The index is calculated only when at least four of six components are available."),
                                                                 html.Li("Component coverage is shown in hover labels to avoid hiding missingness."),
                                                                 html.Li("Alternative weighting versions are shown as a robustness range, not as a statistical confidence interval."),
+                                                                html.Li("Forecast models use rolling origins; future target columns are blocked from training features."),
                                                             ]
                                                         ),
                                                     ],
@@ -4129,7 +6942,12 @@ $$
                                                                 html.Li("The index is descriptive and diagnostic, not causal."),
                                                                 html.Li("SAFE survey answers measure reported conditions and partly ordinal responses."),
                                                                 html.Li("CISS is a common euro-area market-stress benchmark, not a country-specific SME credit variable."),
+                                                                html.Li("Full-sample z-scores are best for retrospective comparison; fixed-baseline SME-FPI is the real-time robustness check."),
                                                                 html.Li("PCA weights maximize explained variance, not economic importance."),
+                                                                html.Li("Model agreement quality means model consistency, not certainty that the H+1 outcome will occur."),
+                                                                html.Li("Rolling-origin forecasts block future values, but exact publication lags for every external source are not fully modeled."),
+                                                                html.Li("GARCH is excluded because the dashboard predicts semiannual survey-index levels, not high-frequency volatility."),
+                                                                html.Li("Seasonal SARIMA is not a headline model because each country has too few half-year observations to defend seasonal structure."),
                                                             ]
                                                         ),
                                                     ],
@@ -4149,6 +6967,79 @@ $$
 
 
 @app.callback(
+    Output("lens-panel", "children"),
+    Input("reader-lens", "value"),
+)
+def update_reader_lens(mode):
+    return reader_lens_panel(mode)
+
+
+@app.callback(
+    Output("main-tabs", "value"),
+    Input("jump-start", "n_clicks"),
+    Input("jump-board", "n_clicks"),
+    Input("jump-defense", "n_clicks"),
+    Input("jump-forecast", "n_clicks"),
+    Input("jump-method", "n_clicks"),
+    Input("jump-survey", "n_clicks"),
+    Input("lens-primary-action", "n_clicks"),
+    Input("read-path-start", "n_clicks"),
+    Input("read-path-decision", "n_clicks"),
+    Input("read-path-findings", "n_clicks"),
+    Input("read-path-overview", "n_clicks"),
+    Input("read-path-forecast", "n_clicks"),
+    Input("read-path-diagnosis", "n_clicks"),
+    Input("read-path-methodology", "n_clicks"),
+    State("reader-lens", "value"),
+    prevent_initial_call=True,
+)
+def jump_to_tab(*args):
+    reader_mode = args[-1]
+    return target_tab_from_button(ctx.triggered_id, reader_mode)
+
+
+@app.callback(
+    Output("reading-path-detail", "children"),
+    Output("read-path-start", "className"),
+    Output("read-path-decision", "className"),
+    Output("read-path-findings", "className"),
+    Output("read-path-overview", "className"),
+    Output("read-path-forecast", "className"),
+    Output("read-path-diagnosis", "className"),
+    Output("read-path-methodology", "className"),
+    Input("read-path-start", "n_clicks"),
+    Input("read-path-decision", "n_clicks"),
+    Input("read-path-findings", "n_clicks"),
+    Input("read-path-overview", "n_clicks"),
+    Input("read-path-forecast", "n_clicks"),
+    Input("read-path-diagnosis", "n_clicks"),
+    Input("read-path-methodology", "n_clicks"),
+    prevent_initial_call=True,
+)
+def update_reading_path_detail(*_clicks):
+    target = READING_PATH_TABS.get(ctx.triggered_id, "start")
+    return [reading_path_detail(target), *reading_path_node_classes(target)]
+
+
+@app.callback(
+    Output("forecast-view-point", "style"),
+    Output("forecast-view-uncertainty", "style"),
+    Output("forecast-view-benchmark", "style"),
+    Input("forecast-view-select", "value"),
+)
+def update_forecast_view(selected):
+    return forecast_view_styles(selected)
+
+
+@app.callback(
+    Output("source-catalog-table-container", "children"),
+    Input("source-role-filter", "value"),
+)
+def update_source_catalog_table(role_filter):
+    return source_catalog_table(role_filter=role_filter)
+
+
+@app.callback(
     Output("country-select", "value"),
     Input("select-all-countries", "n_clicks"),
     Input("clear-all-countries", "n_clicks"),
@@ -4163,9 +7054,20 @@ def set_country_selection(_select_all_clicks, _clear_all_clicks):
 
 
 @app.callback(
+    Output("dataset-preview-container", "children"),
+    Input("dataset-select", "value"),
+    Input("dataset-row-count", "value"),
+)
+def update_dataset_preview(dataset_key, row_count):
+    return render_dataset_preview(dataset_key, row_count)
+
+
+@app.callback(
     Output("kpi-row", "children"),
     Output("decision-summary-cards", "children"),
     Output("decision-narrative-container", "children"),
+    Output("standardization-caveat-container", "children"),
+    Output("command-panel-container", "children"),
     Output("decision-table-container", "children"),
     Output("decision-scatter-figure", "figure"),
     Output("agreement-figure", "figure"),
@@ -4177,6 +7079,7 @@ def set_country_selection(_select_all_clicks, _clear_all_clicks):
     Output("time-series-figure", "figure"),
     Output("robustness-figure", "figure"),
     Output("forecast-figure", "figure"),
+    Output("forecast-loss-figure", "figure"),
     Output("model-rank-figure", "figure"),
     Output("animated-stress-figure", "figure"),
     Output("heatmap-figure", "figure"),
@@ -4203,6 +7106,8 @@ def update_dashboard(countries, metric_col, period_range, pca_3d_z, problem, fir
         kpi_cards(panel_range),
         decision_summary_cards(decision_board),
         decision_narrative(decision_board),
+        standardization_caveat(metric_col, period_range),
+        command_center_panel(decision_board, metric_col, period_range),
         decision_table(decision_board),
         make_decision_scatter(decision_board),
         make_agreement_figure(decision_board),
@@ -4214,6 +7119,7 @@ def update_dashboard(countries, metric_col, period_range, pca_3d_z, problem, fir
         make_time_series(panel_range, countries, metric_col),
         make_robustness(panel_range, countries),
         make_forecast_figure(period_range, countries, metric_col),
+        make_forecast_loss_figure(countries),
         make_model_rank_heatmap(),
         make_animated_stress_motion(panel_range, countries, metric_col),
         make_heatmap(panel_range, metric_col),

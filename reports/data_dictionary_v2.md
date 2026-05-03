@@ -14,8 +14,8 @@ Can a borrower-side SME Financing Pain Index reveal SME credit stress in Europe 
 | `data/processed/safe_problem_severity_cube.csv` | 20,570 | Problem severity cube with weighted severity, top-box share, and high-pressure share. |
 | `data/processed/macro_context_panel.csv` | 386 | World Bank annual macro indicators aligned to the country-half-year panel. |
 | `data/processed/external_validation_panel.csv` | 386 | Main panel plus future validation targets from SAFE Q0B, CISS, and macro context. |
-| `data/processed/forecasting_feature_panel.csv` | 386 | Expanded early-warning panel with SME-FPI, macro, micro, BLS, MIR, Eurostat, current values, and lagged predictors. |
-| `data/processed/forecasting_model_evaluation.csv` | 216 | Rolling-origin H+1 forecast evaluation comparing Elastic Net, Ridge, Random Forest, Gradient Boosting, and five simple baselines. |
+| `data/processed/forecasting_feature_panel.csv` | 386 | Expanded early-warning panel with SME-FPI, pressure-family diagnostics, macro, micro, BLS, MIR, Eurostat, current values, and lagged predictors. |
+| `data/processed/forecasting_model_evaluation.csv` | 264 | Rolling-origin H+1 forecast evaluation comparing Elastic Net, Ridge, Random Forest, Gradient Boosting, simple baselines, and ARIMA/ARIMAX benchmarks. |
 | `data/processed/latest_forecast_model_predictions.csv` | 108 | Latest-origin model predictions by country and model. |
 | `data/processed/forecast_decision_board.csv` | 12 | Latest country risk tier, confidence, model agreement, and driver summary. |
 | `data/processed/dashboard_source_catalog.csv` | 15 | Dashboard-facing source inventory showing which datasets build the index and which feed forecasting/validation. |
@@ -82,6 +82,7 @@ The forecasting layer keeps the SME-FPI Core definition unchanged. Extra variabl
 | Variable Group | Example Columns | Source | Use |
 |---|---|---|---|
 | Current pain | `SME_FPI_equal_z`, component z-scores, `PC1`, `PC2`, relative gaps | ECB SAFE and ECB CISS | Baseline signal and current state. |
+| Pressure families | `availability_pressure_z`, `cost_pressure_z`, `salience_pressure_z` | Derived from ECB SAFE components | Plain-English diagnostic grouping for access, cost, and salience pressure. |
 | Macro climate | `macro_gdp_slowdown_z`, `macro_unemployment_z`, `macro_inflation_z`, `macro_stress_context_z` | World Bank | Forecasting predictor and context. |
 | Micro vulnerability | `micro_access_finance_severity`, firm-size and sector access severity, broad problem pressure | ECB SAFE Q0B cube | Forecasting predictor and diagnostic segmentation. |
 | Lender-side signal | `bls_credit_standards_sme`, `bls_loan_demand_sme`, `bls_terms_conditions_sme` | ECB Bank Lending Survey | Forecasting predictor only. |
@@ -97,7 +98,8 @@ The forecasting layer keeps the SME-FPI Core definition unchanged. Extra variabl
 | `forecasting_model_evaluation.csv` | Rolling-origin H+1 forecast evaluation with model-level MAE/RMSE, improvement versus naive, improvement versus the strongest simple baseline, and recent best-model selection. |
 | `forecasting_layer_summary.csv` | Compact dashboard KPI summary for feature counts and recent backtest scores. |
 | `latest_forecast_model_predictions.csv` | Latest H+1 country predictions for every baseline and ML model. |
-| `forecast_decision_board.csv` | Latest country-level risk tier, confidence label, directional model agreement, and primary drivers. |
+| `forecast_decision_board.csv` | Latest country-level risk tier, signal type, model agreement quality, directional model agreement, and primary drivers. |
+| `decision_board_all_origins.csv` | Historical country-level risk tier replay with signal type and model agreement quality. |
 | `dashboard_source_catalog.csv` | Source/method inventory displayed inside the Methodology tab. |
 
 ## Validation Outputs

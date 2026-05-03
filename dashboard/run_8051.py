@@ -1,7 +1,13 @@
 from pathlib import Path
+import importlib.util
 import traceback
 
-from app import app
+
+APP_PATH = Path(__file__).resolve().with_name("app.py")
+SPEC = importlib.util.spec_from_file_location("sme_fpi_dashboard_app", APP_PATH)
+APP_MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(APP_MODULE)
+app = APP_MODULE.app
 
 
 if __name__ == "__main__":

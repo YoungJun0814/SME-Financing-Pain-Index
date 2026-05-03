@@ -126,11 +126,15 @@ The expanded predictor stack includes:
 - Eurostat business bankruptcy and registration indexes,
 - one-period and two-period lagged versions where available.
 
-The dashboard uses a small model suite for the early-warning layer rather than relying on one algorithm. Elastic Net and Ridge provide regularized linear machine-learning benchmarks for a small, correlated panel; Random Forest and Gradient Boosting test whether nonlinear predictor interactions add value. All models are compared against five simple baselines: current-value naive, country historical mean, country AR(1), last-change extrapolation, and pooled lag OLS.
+The dashboard uses a small model suite for the early-warning layer rather than relying on one algorithm. Elastic Net and Ridge provide regularized linear machine-learning benchmarks for a small, correlated panel; Random Forest and Gradient Boosting test whether nonlinear predictor interactions add value. All models are compared against simple baselines and compact time-series benchmarks: current-value naive, country historical mean, country AR(1), last-change extrapolation, pooled lag OLS, country ARIMA, and country ARIMAX with CISS.
+
+Forecast performance is visualized with rolling-origin out-of-sample error rather than training loss. MAE is the headline loss metric because the target is a standardized SME-FPI score, while RMSE is retained as a secondary check for larger misses. This keeps the forecast evidence interpretable for a non-finance reader and prevents the dashboard from implying that in-sample model fit is equivalent to predictive reliability.
 
 The forecast is interpreted as a diagnostic early-warning score, not as a production credit-risk model or causal prediction system.
 
-The Decision Board translates the analytical outputs into monitoring tiers. Alert, Watch, Monitor, and Normal combine current SME_FPI, the SME-FPI minus CISS gap, the best recent ML H+1 forecast, and agreement across the four ML models. These tiers are evidence bundles for analyst attention, not automated policy recommendations.
+The Start Here tab turns the dashboard into a self-guided final-project report for a reader who will not hear a live presentation. It states the thesis, defines the finance terms, gives the headline results, and points the reader through the evidence sequence before exposing the more technical appendix-style tabs.
+
+The Monitoring Board translates the analytical outputs into monitoring tiers. Alert, Watch, Monitor, and Normal combine current SME_FPI, the SME-FPI minus CISS gap, the best recent ML H+1 forecast, and agreement across the four ML models. The dashboard now also labels the signal type, such as hidden-gap monitor or rising-forecast monitor. These tiers are evidence bundles for analyst attention, not automated policy recommendations.
 
 ## External and Forward Validation
 
@@ -160,8 +164,11 @@ The within-country correlation is important because raw panel correlations can b
 - Eurostat registrations and bankruptcies are broad business-demography indicators, not SME-specific credit outcomes.
 - PCA weights maximize explained variance, not economic importance.
 - Reliability weights are internal validation, not external truth.
+- Full-sample z-scores are useful for retrospective comparison; fixed-baseline SME_FPI is the robustness check for a more real-time reference scale.
 - Forecast models use median imputation for missing predictors and should be read as monitoring diagnostics, not structural economic models.
-- Decision Board tiers are heuristic analyst-attention labels, not automated policy classifications.
+- Model agreement quality means consistency across the model suite, not certainty that the H+1 outcome will occur.
+- Rolling-origin forecasts block future values, but exact publication lags for every external source are not fully modeled.
+- Monitoring Board tiers are heuristic analyst-attention labels, not automated policy classifications.
 - Additional real-economy outcome variables, such as bankruptcies or business-confidence data, remain recommended next extensions.
 
 ## Current Project Status

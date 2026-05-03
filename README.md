@@ -1,6 +1,56 @@
 # SME Financing Pain Index
 
-A borrower-side SME financing stress index for Europe using ECB SAFE, ECB CISS, PCA, clustering, big-data survey visualization, and external validation checks.
+A borrower-side SME financing stress index for Europe, built from ECB SAFE survey signals and compared with the ECB New CISS market-stress benchmark. The project includes a reproducible notebook, processed datasets, validation outputs, forecasting diagnostics, and an interactive Dash dashboard.
+
+## Quick Start
+
+Run these commands from the repository root:
+
+```powershell
+python -m pip install -r requirements.txt
+python dashboard/app.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8050
+```
+
+If port `8050` is already busy, use the helper runner:
+
+```powershell
+python dashboard/run_8051.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8051
+```
+
+To open the portfolio notebook:
+
+```powershell
+python -m jupyter notebook notebooks/BigData_SME_FPI_Portfolio.ipynb
+```
+
+To re-execute the notebook in place:
+
+```powershell
+python -m jupyter nbconvert --to notebook --execute notebooks/BigData_SME_FPI_Portfolio.ipynb --inplace --ExecutePreprocessor.timeout=1200
+```
+
+## What To Read First
+
+For a first-time reader, use this order:
+
+1. `dashboard/app.py`: run the dashboard and start on **Start Here**.
+2. **Current Board**: see the latest monitoring tiers and country drivers.
+3. **Country Diagnosis**: inspect why a country was flagged.
+4. **Forecast Check**: read the H+1 early-warning model as a validation layer, not as a deterministic forecast.
+5. **Data & Method** and **Data Preview**: audit data sources, rows, limitations, and reproducibility.
+6. `notebooks/BigData_SME_FPI_Portfolio.ipynb`: inspect formulas, figure rationale, and the new dashboard companion evidence section.
 
 ## Research Question
 
@@ -15,64 +65,63 @@ Can a borrower-side SME Financing Pain Index reveal European SME credit stress t
 - Uses a 231,231-row ECB SAFE Q0B survey cube for Big Data visualization and robustness checks.
 - Adds macro context and forward validation using World Bank indicators and future SAFE Q0B outcomes.
 - Adds an early-warning forecasting layer using SAFE micro diagnostics, World Bank macro context, ECB BLS lender-side signals, ECB MIR loan-rate/volume data, and Eurostat business registration/bankruptcy signals.
-- Produces an executed Jupyter notebook with code, outputs, and chart-by-chart design rationale.
+- Provides a dashboard-first reading path with latest monitoring tiers, country diagnosis cards, forecast audit views, and data preview tools.
 
 ## Repository Structure
 
 | Path | Purpose |
 |---|---|
-| `scripts/` | Reproducible Python pipeline. |
+| `dashboard/` | Interactive Dash dashboard for storytelling, hover diagnostics, current monitoring, and exploratory analysis. |
 | `notebooks/` | Executed portfolio notebook for Big Data Visualization and Analysis. |
+| `data/processed/` | Cleaned panels, index versions, validation outputs, forecast outputs, and dashboard-ready diagnostics. |
 | `data/raw/` | Downloaded raw ECB/World Bank inputs, except the very large Q0B raw cache. |
-| `data/processed/` | Cleaned panels, index versions, validation outputs, and diagnostics. |
-| `figures/` | Static and interactive visualization outputs. |
-| `reports/` | Methodology notes, data dictionary, R Markdown report, SQL notes, and review documents. |
-| `dashboard/` | Interactive Dash dashboard for storytelling, hover diagnostics, and exploratory analysis. |
+| `figures/` | Static and interactive visualization outputs generated from the notebook and scripts. |
+| `reports/` | Methodology notes, data dictionary, profiling report, and UI/UX review documents. |
+| `scripts/` | Reproducible Python pipeline. |
+| `tests/` | Smoke tests for dashboard imports, source files, and key generated views. |
 
 ## Main Outputs
 
 | Output | Description |
 |---|---|
-| `notebooks/BigData_SME_FPI_Portfolio.ipynb` | Main executed notebook with code, outputs, explanations, and visual design rationale. |
+| `dashboard/app.py` | Interactive SME Financing Pain Observatory built with Dash and Plotly. |
+| `notebooks/BigData_SME_FPI_Portfolio.ipynb` | Main executed notebook with code, outputs, explanations, chart rationale, and dashboard companion evidence. |
 | `data/processed/sme_fpi_panel_v2.csv` | Main country-half-year panel with SME_FPI versions, PCA, clusters, CISS, and relative gaps. |
-| `data/processed/weighting_comparison.csv` | Equal, PCA, and reliability weights for the six SME_FPI components. |
-| `data/processed/index_sensitivity_summary.csv` | Robustness comparison across alternative index versions. |
-| `data/processed/cluster_validation_diagnostics.csv` | Elbow and silhouette diagnostics for KMeans cluster count. |
+| `data/processed/forecast_decision_board.csv` | Latest decision-board risk tier, signal type, model agreement quality, and driver summary by country. |
+| `data/processed/forecasting_feature_panel.csv` | Expanded forecast panel with core SME-FPI, macro, micro, BLS, MIR, Eurostat predictors, and lagged features. |
+| `data/processed/forecasting_model_evaluation.csv` | Rolling-origin H+1 forecast evaluation comparing ML models, simple baselines, and ARIMA/ARIMAX benchmarks. |
+| `data/processed/dashboard_source_catalog.csv` | Dashboard-facing inventory of datasets, roles, row counts, and index-vs-forecast usage. |
 | `data/processed/safe_problem_severity_cube.csv` | Big-cube severity, top-box, and high-pressure measures. |
-| `data/processed/external_validation_panel.csv` | SME_FPI, CISS, macro context, and future validation targets. |
-| `data/processed/forecasting_feature_panel.csv` | Expanded forecast panel with core SME-FPI, macro, micro, BLS, MIR, Eurostat business-demography predictors, and lagged features. |
-| `data/processed/forecasting_model_evaluation.csv` | Rolling-origin H+1 forecast evaluation comparing Elastic Net, Ridge, Random Forest, Gradient Boosting, and five simple baselines. |
-| `data/processed/forecast_decision_board.csv` | Latest decision-board risk tier, forecast agreement, confidence, and driver summary by country. |
-| `data/processed/dashboard_source_catalog.csv` | Dashboard-facing inventory of datasets, roles, and index-vs-forecast usage. |
 | `data/processed/validation_results.csv` | Pearson, Spearman, and within-country validation correlations. |
 | `reports/data_dictionary_v2.md` | Data dictionary for the v2 project. |
 | `reports/SME_FPI_v2_methodology.md` | Methodology document. |
-| `figures/notebook_generated/00_signature_sme_fpi_story.png` | One-page signature visual summary. |
-| `dashboard/app.py` | Interactive SME Financing Pain Observatory built with Dash and Plotly. |
+
+## Dashboard Tabs
+
+- **Start Here:** project claim, five-minute reading path, glossary, and presentation logic.
+- **Current Board:** latest monitoring tier, signal type, confidence, model agreement, and country drivers.
+- **Defense & Findings:** direct answers to data sufficiency, readability, visualization fit, and forecast defensibility questions.
+- **SME-FPI Index:** plain-English index definition, formula logic, KPI cards, thresholds, and storytelling structure.
+- **Context Guides:** short explanations of SAFE, CISS, the relative SME-CISS gap, and index versions.
+- **Index Explorer:** SME_FPI vs CISS time series, weighting robustness, animated stress motion, heatmaps, and component diagnostics.
+- **Borrower-Market Gap:** choropleth map, relative gap ranking, and diagnostic bubble chart.
+- **Regime Appendix:** PCA cluster scatter, PCA correlation circle, and exploratory 3D PCA regime view.
+- **Micro Cube:** SAFE problem, firm-size, and sector diagnostics from the 231,231-row survey cube.
+- **Forecast Check:** H+1 early-warning models with rolling-origin MAE/RMSE loss, benchmarks, model rank stability, and country error views.
+- **Country Diagnosis:** evidence cards linking monitoring tiers to current score, relative gap, forecast direction, agreement, and drivers.
+- **Data Preview:** quick preview of raw, processed, validation, and forecast files.
+- **Data & Method:** source catalog, validation chart, design safeguards, and main limitations.
 
 ## Data Sources
 
 - ECB Survey on the Access to Finance of Enterprises (SAFE).
 - ECB New Composite Indicator of Systemic Stress (New CISS).
-- ECB Bank Lending Survey (BLS):
-  - SME credit standards,
-  - SME loan demand,
-  - SME loan terms and conditions,
-  - rejected enterprise loan applications.
-- ECB MFI Interest Rate Statistics (MIR):
-  - small corporate loan rates,
-  - large corporate loan rates,
-  - small corporate loan volumes.
-- Eurostat short-term business statistics:
-  - business bankruptcy declarations index,
-  - business registrations index.
-- World Bank macro indicators:
-  - GDP growth,
-  - unemployment,
-  - CPI inflation,
-  - domestic credit to the private sector.
+- ECB Bank Lending Survey (BLS): SME credit standards, SME loan demand, SME loan terms and conditions, and rejected enterprise loan applications.
+- ECB MFI Interest Rate Statistics (MIR): small corporate loan rates, large corporate loan rates, and small corporate loan volumes.
+- Eurostat short-term business statistics: business bankruptcy declarations index and business registrations index.
+- World Bank macro indicators: GDP growth, unemployment, CPI inflation, and domestic credit to the private sector.
 
-## Important Note About Large Data
+## Large Data Note
 
 The raw SAFE Q0B cube is about 131 MB and is intentionally excluded from GitHub:
 
@@ -106,47 +155,6 @@ python scripts/05_create_sqlite_demo.py
 python scripts/04_create_bigdata_notebook.py
 ```
 
-To execute the notebook:
-
-```powershell
-python -m jupyter nbconvert --to notebook --execute notebooks/BigData_SME_FPI_Portfolio.ipynb --inplace --ExecutePreprocessor.timeout=1200
-```
-
-## Interactive Dashboard
-
-The dashboard is designed as an interactive companion to the notebook. It explains the project, defines SME_FPI, lets the viewer hover over each chart for numeric and interpretive labels, and adds chart-level rationale for data visualization assessment.
-
-Install dependencies:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Run from the repository root:
-
-```powershell
-python dashboard/app.py
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8050
-```
-
-Main dashboard tabs:
-
-- Decision Board: current watchlist, risk tier, confidence, model agreement, and primary country drivers.
-- Overview: research question, plain-English SME_FPI definition, first-read data/method map, KPI cards, monitor thresholds, dataset shape, and storytelling logic.
-- Context guides: short explanations of SAFE, CISS, the relative SME-CISS gap, and the four index versions for non-finance readers.
-- Explorer: SME_FPI vs CISS time series, weighting robustness, animated stress motion, country-period heatmap, and component heatmap.
-- Hidden Stress: choropleth map, relative SME-CISS gap ranking, and diagnostic bubble chart.
-- Regimes: PCA cluster scatter, PCA correlation circle, and an exploratory 3D PCA regime view.
-- Big Data Cube: local controls for SAFE problem, firm size, and sector, plus trend, bar, and heatmap diagnostics from the 231,231-row cube.
-- Forecast Lab: expanded machine-learning early-warning model suite using core SME-FPI, macro, micro, BLS, MIR, and Eurostat predictors, with Elastic Net, Ridge, Random Forest, Gradient Boosting, and strong simple-baseline checks.
-- Country Diagnosis: evidence-bundle cards linking risk tiers to current score, hidden gap, H+1 forecast, model agreement, and drivers.
-- Methodology: data source inventory, validation chart, design safeguards, and main limitations.
-
 ## Methodological Caveats
 
 - The index is descriptive and correlational, not causal.
@@ -155,22 +163,12 @@ Main dashboard tabs:
 - The relative SME-CISS gap should not be interpreted as proof of local financial-market stress.
 - Q0B severity uses ordinal survey answers, so top-box and high-pressure shares are added as robustness checks.
 - World Bank macro variables are annual and should be read as broad context rather than high-frequency validation.
-- BLS, MIR, and Eurostat variables are used as forecasting predictors, not as SME-FPI Core components, to keep the index borrower-side and interpretable.
+- BLS, MIR, and Eurostat variables are used as forecasting predictors, not as SME-FPI Core components.
 - The forecast layer is an early-warning experiment on a small country-period panel, not a production credit-risk model.
 
-## Project Status
+## Troubleshooting
 
-The project now includes:
-
-- core index,
-- alternative weighting,
-- PCA and clustering,
-- cluster validation,
-- big-data survey diagnostics,
-- macro context,
-- forward validation,
-- BLS/MIR/Eurostat forecasting data,
-- expanded early-warning feature panel,
-- executed notebook,
-- methodology documentation.
-- interactive Dash dashboard.
+- If a module import fails, run `python -m pip install -r requirements.txt` again in the same environment that runs the dashboard.
+- If the dashboard opens but styles look stale, hard-refresh the browser tab.
+- If port `8050` is busy, run `python dashboard/run_8051.py` and open `http://127.0.0.1:8051`.
+- If the big raw SAFE cube is missing, regenerate it with `python scripts/06_build_big_cube.py`; the dashboard normally uses processed files under `data/processed/`.

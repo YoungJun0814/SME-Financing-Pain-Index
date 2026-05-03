@@ -9,3 +9,4 @@ requests
 nbformat
 jupyter
 ydata-profiling
+statsmodels

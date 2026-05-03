@@ -27,12 +27,21 @@ from IPython.display import HTML, display
 def find_project_root():
     here = Path.cwd().resolve()
     for candidate in [here, *here.parents]:
-        if (candidate / "data" / "processed" / "sme_fpi_panel.csv").exists():
+        if (candidate / "data" / "processed" / "sme_fpi_panel_v2.csv").exists():
             return candidate
         nested = candidate / "SME_FPI"
-        if (nested / "data" / "processed" / "sme_fpi_panel.csv").exists():
+        if (nested / "data" / "processed" / "sme_fpi_panel_v2.csv").exists():
             return nested
     raise FileNotFoundError("Could not locate the SME_FPI project root.")
+
+
+def load_csv(name, fallback=None):
+    path = PROCESSED / name
+    if path.exists():
+        return pd.read_csv(path)
+    if fallback is not None:
+        return fallback.copy()
+    raise FileNotFoundError(f"Missing processed dataset: {path}")
 
 
 BASE = find_project_root()
@@ -41,26 +50,39 @@ REPORTS = BASE / "reports"
 NOTEBOOK_FIGURES = BASE / "figures" / "notebook_generated"
 NOTEBOOK_FIGURES.mkdir(parents=True, exist_ok=True)
 
-panel = pd.read_csv(PROCESSED / "sme_fpi_panel.csv")
+panel = load_csv("sme_fpi_panel_v2.csv")
 df = panel.copy()
-loadings = pd.read_csv(PROCESSED / "pca_loadings.csv")
-explained = pd.read_csv(PROCESSED / "pca_explained_variance.csv")
-profiles = pd.read_csv(PROCESSED / "sme_fpi_cluster_profiles.csv")
-weights = pd.read_csv(PROCESSED / "weighting_comparison.csv")
-sensitivity = pd.read_csv(PROCESSED / "index_sensitivity_summary.csv")
-cluster_validation = pd.read_csv(PROCESSED / "cluster_validation_diagnostics.csv")
-validation_results = pd.read_csv(PROCESSED / "validation_results.csv")
-validation_panel = pd.read_csv(PROCESSED / "external_validation_panel.csv")
-variable_candidates = pd.read_csv(PROCESSED / "variable_expansion_candidates.csv")
-big_review = pd.read_csv(PROCESSED / "big_cube_review_summary.csv")
-safe_long = pd.read_csv(PROCESSED / "safe_component_long.csv")
-size_summary = pd.read_csv(PROCESSED / "sector_size_component_summary.csv")
-severity_cube = pd.read_csv(PROCESSED / "safe_problem_severity_cube.csv")
-access_cube = pd.read_csv(PROCESSED / "access_finance_severity_cube.csv")
+loadings = load_csv("pca_loadings.csv")
+explained = load_csv("pca_explained_variance.csv")
+profiles = load_csv("sme_fpi_cluster_profiles.csv")
+weights = load_csv("weighting_comparison.csv")
+sensitivity = load_csv("index_sensitivity_summary.csv")
+cluster_validation = load_csv("cluster_validation_diagnostics.csv")
+validation_results = load_csv("validation_results.csv")
+validation_panel = load_csv("external_validation_panel.csv")
+variable_candidates = load_csv("variable_expansion_candidates.csv")
+big_review = load_csv("big_cube_review_summary.csv")
+safe_long = load_csv("safe_component_long.csv")
+size_summary = load_csv("sector_size_component_summary.csv")
+severity_cube = load_csv("safe_problem_severity_cube.csv")
+access_cube = load_csv("access_finance_severity_cube.csv")
+
+# Dashboard companion tables. These are the same processed evidence files used by dashboard/app.py.
+forecast_panel = load_csv("forecasting_feature_panel.csv", fallback=panel)
+forecast_evaluation = load_csv("forecasting_model_evaluation.csv", fallback=pd.DataFrame())
+forecast_summary = load_csv("forecasting_layer_summary.csv", fallback=pd.DataFrame())
+dashboard_source_catalog = load_csv("dashboard_source_catalog.csv", fallback=pd.DataFrame())
+decision_board = load_csv("forecast_decision_board.csv", fallback=pd.DataFrame())
+decision_history = load_csv("decision_board_all_origins.csv", fallback=pd.DataFrame())
+latest_forecast_predictions = load_csv("latest_forecast_model_predictions.csv", fallback=pd.DataFrame())
+country_error = load_csv("forecasting_country_error.csv", fallback=pd.DataFrame())
+risk_tier_validation = load_csv("risk_tier_validation.csv", fallback=pd.DataFrame())
 
 print(f"Project root: {BASE}")
-print(f"Main analytical panel: {panel.shape[0]:,} rows x {panel.shape[1]:,} columns")
-print(f"Big SAFE Q0B cube summary is loaded from: {PROCESSED / 'big_cube_review_summary.csv'}")
+print(f"Dashboard-aligned panel: {panel.shape[0]:,} rows x {panel.shape[1]:,} columns")
+print(f"Forecast feature panel: {forecast_panel.shape[0]:,} rows x {forecast_panel.shape[1]:,} columns")
+print(f"Latest decision board rows: {len(decision_board):,}")
+print(f"Dashboard source layers: {len(dashboard_source_catalog):,}")
 display(panel.head())
 """
 
@@ -69,11 +91,11 @@ DATA_OVERVIEW_CODE = r"""
 main_dataset = pd.DataFrame(
     [
         {
-            "dataset": "Main analytical panel",
-            "file": "sme_fpi_panel.csv",
+            "dataset": "Dashboard-aligned SME-FPI panel",
+            "file": "sme_fpi_panel_v2.csv",
             "rows": len(panel),
             "columns": panel.shape[1],
-            "role": "SME_FPI index, CISS comparison, PCA, clustering",
+            "role": "SME_FPI index, CISS comparison, PCA, clustering, dashboard tabs",
         },
         {
             "dataset": "Selected SAFE component long data",
@@ -87,7 +109,7 @@ main_dataset = pd.DataFrame(
             "file": "safe_q0b_pressingness_big_cube.csv",
             "rows": int(big_review.loc[0, "raw_rows"]),
             "columns": int(big_review.loc[0, "raw_columns"]),
-            "role": "Big Data Visualization and additional diagnostics",
+            "role": "Big Data visualization and firm-survey diagnostics",
         },
         {
             "dataset": "Problem severity cube",
@@ -95,6 +117,20 @@ main_dataset = pd.DataFrame(
             "rows": len(severity_cube),
             "columns": severity_cube.shape[1],
             "role": "Severity score and severe-response shares by country, period, firm group, problem",
+        },
+        {
+            "dataset": "Forecast feature panel",
+            "file": "forecasting_feature_panel.csv",
+            "rows": len(forecast_panel),
+            "columns": forecast_panel.shape[1],
+            "role": "H+1 early-warning features used by the dashboard forecast tab",
+        },
+        {
+            "dataset": "Latest decision board",
+            "file": "forecast_decision_board.csv",
+            "rows": len(decision_board),
+            "columns": decision_board.shape[1] if not decision_board.empty else 0,
+            "role": "Current Board, Country Diagnosis, monitoring tiers, and driver cards",
         },
     ]
 )
@@ -105,6 +141,13 @@ missing_check = panel[
     ["SME_FPI_equal_z", "CISS_z", "Hidden_SME_Stress", "components_available"]
 ].isna().sum().rename("missing_values").to_frame()
 display(missing_check)
+
+if not dashboard_source_catalog.empty:
+    display(
+        dashboard_source_catalog[["layer", "dataset", "status", "role", "rows", "dashboard_use"]]
+        .sort_values(["status", "layer", "dataset"])
+        .reset_index(drop=True)
+    )
 """
 
 
@@ -1370,6 +1413,154 @@ HTML(f"<a href='{profile_path.as_posix()}'>Open ydata profiling report</a>")
 """
 
 
+DASHBOARD_TABLE_CODE = r"""
+dashboard_tab_map = pd.DataFrame(
+    [
+        ["Start Here", "What is the project claim?", "thesis, glossary, five-minute path", "lowest-friction entry point"],
+        ["Current Board", "Who needs attention now?", "risk tier, confidence, drivers", "plain-language monitoring"],
+        ["Defense & Findings", "Can the project defend the grading questions?", "data sufficiency, readability, fit, forecast", "direct assessment answers"],
+        ["Index Basics", "What does SME-FPI measure?", "formula, components, CISS gap", "prevents acronym confusion"],
+        ["Index Explorer", "How does the index behave over time?", "time series, robustness, heatmaps", "main analytical evidence"],
+        ["Forecast Check", "Is the early-warning layer defensible?", "rolling-origin loss, model families, baselines", "forecast as audit, not certainty"],
+        ["Country Diagnosis", "Why was a country flagged?", "level, gap, forecast direction, agreement, drivers", "country evidence bundle"],
+        ["Data Preview", "What do the files actually look like?", "raw/processed preview", "transparent inspection"],
+        ["Data & Method", "Where do the data and limits enter?", "source catalog, validation, safeguards", "audit trail"],
+    ],
+    columns=["dashboard_tab", "reader_question", "evidence_shown", "design_reason"],
+)
+
+display(dashboard_tab_map)
+
+if not decision_board.empty:
+    latest_board_view = decision_board.sort_values(
+        ["risk_score", "current_score", "gap_value"], ascending=[False, False, False]
+    )[
+        [
+            "country_name",
+            "risk_tier",
+            "risk_score",
+            "signal_type",
+            "current_score",
+            "gap_value",
+            "best_model_label",
+            "best_model_delta",
+            "agreement_quality",
+            "primary_drivers",
+        ]
+    ].copy()
+    numeric_cols = ["risk_score", "current_score", "gap_value", "best_model_delta"]
+    latest_board_view[numeric_cols] = latest_board_view[numeric_cols].round(2)
+    display(latest_board_view)
+
+if not forecast_summary.empty:
+    summary = forecast_summary.iloc[0]
+    dashboard_kpis = pd.DataFrame(
+        [
+            ["Forecast feature panel", f"{int(summary['rows_forecasting_feature_panel']):,} rows", "dashboard forecast inputs"],
+            ["Predictor breadth", f"{int(summary['macro_micro_predictor_columns'])} macro/micro + {int(summary['optional_external_predictor_columns'])} optional external", "forecast-only context"],
+            ["Rolling origins", f"{int(summary['rolling_origin_count'])}", "backtest windows"],
+            ["Best recent model", f"{summary['best_recent_model_label']} MAE {summary['best_recent_model_mae']:.3f}", "latest H+1 benchmark"],
+            ["Strongest baseline", f"{summary['strongest_recent_baseline_label']} MAE {summary['strongest_recent_baseline_mae']:.3f}", "comparison floor"],
+            ["ML over baseline", f"{summary['ml_beats_strongest_baseline_share']:.0%} of origins", "forecast defensibility check"],
+        ],
+        columns=["dashboard_kpi", "value", "why_it_matters"],
+    )
+    display(dashboard_kpis)
+"""
+
+
+DASHBOARD_CHART_CODE = r"""
+TIER_ORDER = ["Alert", "Watch", "Monitor", "Normal"]
+TIER_COLORS = {"Alert": "#b91c1c", "Watch": "#d97706", "Monitor": "#2563eb", "Normal": "#64748b"}
+MODEL_FAMILY_COLORS = {"machine learning": "#147c78", "baseline": "#64748b", "time-series benchmark": "#7663a6"}
+
+
+def plot_dashboard_current_board(board):
+    if board.empty:
+        print("No decision-board data available.")
+        return
+    counts = board["risk_tier"].value_counts().reindex(TIER_ORDER, fill_value=0)
+    top = board.sort_values(["risk_score", "current_score", "gap_value"], ascending=[False, False, False]).head(12)
+
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.2), gridspec_kw={"width_ratios": [0.8, 1.4]})
+    ax = axes[0]
+    ax.bar(counts.index, counts.values, color=[TIER_COLORS[t] for t in counts.index], width=0.62)
+    for i, value in enumerate(counts.values):
+        ax.text(i, value + 0.08, str(int(value)), ha="center", va="bottom", fontsize=10, weight="bold", color=INK)
+    ax.set_title("Latest monitoring tiers")
+    ax.set_ylabel("Countries")
+    clean_axes(ax)
+
+    ax = axes[1]
+    ordered = top.sort_values("risk_score")
+    labels = ordered["country_name"].tolist()
+    colors = [TIER_COLORS.get(t, SLATE) for t in ordered["risk_tier"]]
+    ax.barh(labels, ordered["risk_score"], color=colors, height=0.62)
+    for y, (_, row) in enumerate(ordered.iterrows()):
+        ax.text(row["risk_score"] + 0.06, y, f"{row['risk_tier']} | {row['signal_type']}", va="center", fontsize=8.5, color=SLATE)
+    ax.set_title("Current Board ranking: signal first, detail on hover in dashboard")
+    ax.set_xlabel("Risk score")
+    clean_axes(ax, grid_axis="x")
+    ax.grid(axis="y", visible=False)
+
+    fig.suptitle("Dashboard companion: current SME financing watchlist", x=0.01, ha="left", fontsize=15, weight="bold", color=INK)
+    fig.subplots_adjust(top=0.84, wspace=0.36)
+    add_source_note(fig, "Source: forecast_decision_board.csv; risk tiers combine current level, SME-CISS gap, forecast direction, and model agreement.")
+    show_and_save(fig, "25_dashboard_current_board_snapshot.png")
+
+
+def plot_dashboard_forecast_audit(evaluation):
+    if evaluation.empty:
+        print("No forecast evaluation data available.")
+        return
+    latest_origin = evaluation["origin_period_sort"].max()
+    latest = evaluation[evaluation["origin_period_sort"] == latest_origin].sort_values("mae").copy()
+    plot_latest = latest.head(10).sort_values("mae", ascending=False)
+
+    fig, ax = plt.subplots(figsize=(10.5, 5.4))
+    colors = [MODEL_FAMILY_COLORS.get(f, SLATE) for f in plot_latest["model_family"]]
+    bars = ax.barh(plot_latest["model_label"], plot_latest["mae"], color=colors, height=0.62)
+    for bar, (_, row) in zip(bars, plot_latest.iterrows()):
+        ax.text(row["mae"] + 0.006, bar.get_y() + bar.get_height() / 2, f"RMSE {row['rmse']:.2f}", va="center", fontsize=8.5, color=SLATE)
+    ax.set_title(f"Latest rolling-origin forecast audit: {latest['origin_period'].iloc[0]}")
+    ax.set_xlabel("MAE, lower is better")
+    clean_axes(ax, grid_axis="x")
+    ax.grid(axis="y", visible=False)
+    legend_handles = [plt.Rectangle((0, 0), 1, 1, color=color) for color in MODEL_FAMILY_COLORS.values()]
+    ax.legend(legend_handles, MODEL_FAMILY_COLORS.keys(), frameon=False, loc="lower right")
+    add_source_note(fig, "Source: forecasting_model_evaluation.csv; dashboard treats forecasts as benchmarked early-warning diagnostics.")
+    show_and_save(fig, "26_dashboard_forecast_audit.png")
+
+
+def plot_dashboard_source_roles(source_catalog):
+    if source_catalog.empty:
+        print("No dashboard source catalog available.")
+        return
+    by_layer = (
+        source_catalog.groupby("layer", as_index=False)
+        .agg(rows=("rows", "sum"), datasets=("dataset", "count"))
+        .sort_values("rows")
+    )
+
+    fig, ax = plt.subplots(figsize=(10.8, 5.4))
+    ax.barh(by_layer["layer"], by_layer["rows"], color="#2563eb", height=0.58)
+    for y, (_, row) in enumerate(by_layer.iterrows()):
+        ax.text(row["rows"] * 1.08, y, f"{int(row['datasets'])} files", va="center", fontsize=8.5, color=SLATE)
+    ax.set_xscale("log")
+    ax.set_title("Dashboard source catalog: evidence volume by layer")
+    ax.set_xlabel("Rows, log scale")
+    clean_axes(ax, grid_axis="x")
+    ax.grid(axis="y", visible=False)
+    add_source_note(fig, "Source: dashboard_source_catalog.csv; core index, validation, forecast, and raw context are separated by role.")
+    show_and_save(fig, "27_dashboard_source_catalog_roles.png")
+
+
+plot_dashboard_current_board(decision_board)
+plot_dashboard_forecast_audit(forecast_evaluation)
+plot_dashboard_source_roles(dashboard_source_catalog)
+"""
+
+
 def md(text: str):
     return nbf.v4.new_markdown_cell(textwrap.dedent(text).strip())
 
@@ -1383,7 +1574,7 @@ def main() -> None:
     nb["cells"] = [
         md(
             """
-            # Big Data Visualization Portfolio: European SME Financing Pain Index
+            # Big Data Visualization Portfolio: European SME Financing Pain Index + Dashboard Companion
 
             **Research question:** Can a borrower-side SME Financing Pain Index reveal credit stress that is not fully captured by market-side stress indicators such as the ECB CISS?
 
@@ -1398,18 +1589,21 @@ def main() -> None:
             - **Submission format:** this is a `.ipynb` notebook with executable code, saved outputs, and written comments.
             - **Tool requirement:** the notebook uses Python with `pandas`, `matplotlib`, `seaborn`, and `plotly`.
             - **One research question:** all figures support the same question about borrower-side SME financing pain versus the ECB CISS market-stress benchmark.
-            - **Small portfolio logic:** the six core portfolio figures are the time-series comparison, country-period heatmap, latest relative-gap ranking, PCA validation figure, PCA cluster-regime figure, and Big Data cube severity heatmap. The other figures are optional diagnostics that support interpretation, robustness, or general-audience communication.
-            - **Design rationale:** each visualization has a short bullet-point explanation below it covering chart choice, interpretation, and potential limitations.
+            - **Small portfolio logic:** the six core portfolio figures remain the center of the analysis; extra visuals are diagnostics, robustness checks, or dashboard companion views.
+            - **Dashboard alignment:** the added companion section mirrors the dashboard tabs so a first-time reader can move from answer, to evidence, to audit trail.
+            - **Big Data requirement:** the SAFE Q0B cube contains 231,231 rows and is used for firm-size, sector, and problem-severity diagnostics.
+            - **MDA requirement:** PCA, clustering, correlation, heatmaps, parallel coordinates, and forecasting validation are included.
+            - **Design requirement:** each major visualization includes a short interpretation, a design rationale, and an explicit limitation.
             """
         ),
         md(
             """
             ## Analytical Story
 
-            This project follows one storyline:
+            This project now has two connected reading layers:
 
             ```text
-            Problem -> Hypotheses -> Model -> Validation -> Visual Insights -> Limitations
+            Notebook evidence -> Dashboard reader path -> Country diagnosis -> Method audit
             ```
 
             **Problem:** market-side indicators can show whether financial markets are stressed, but they may miss financing pain reported directly by SMEs.
@@ -1419,14 +1613,15 @@ def main() -> None:
             - **H1: Common factor hypothesis.** SAFE borrower-side financing variables share one broad financing-pain dimension.
             - **H2: Benchmark-gap hypothesis.** SME_FPI does not always move together with CISS because the two indicators measure different sides of stress.
             - **H3: Heterogeneity hypothesis.** SME financing pain differs by country, period, firm size, and problem type.
+            - **H4: Monitoring hypothesis.** A dashboard can make the same evidence easier to read by separating latest signals, country explanations, forecast checks, and data audit trails.
 
             **Model:** six SAFE borrower-side variables are standardized, averaged into SME_FPI, and compared with the common ECB CISS benchmark.
 
-            **Validation:** PCA, correlation analysis, clustering, and distribution checks test whether the index behaves like a coherent multidimensional measure.
+            **Validation:** PCA, correlation analysis, clustering, rolling-origin forecasting, source-role checks, and distribution diagnostics test whether the index behaves like a coherent multidimensional measure.
 
-            **Visual insights:** the core portfolio uses six main figures; the remaining figures are diagnostics or dashboard-ready extensions.
+            **Visual insights:** the notebook keeps the reproducible evidence, while the dashboard reorganizes it into a guided, interactive reader flow.
 
-            **Limitations:** the index is descriptive, survey-based, and not a causal model. The CISS gap is a relative benchmark gap, not direct proof of local financial-market stress.
+            **Limitations:** the index is descriptive, survey-based, and not a causal model. The CISS gap is a relative benchmark gap, and the H+1 forecast is an early-warning diagnostic rather than a production credit-risk system.
             """
         ),
         md(
@@ -1435,17 +1630,17 @@ def main() -> None:
 
             All datasets in this project are **tabular data**. This means they are organized like a spreadsheet, with rows as observations and columns as variables.
 
-            - **Main analytical dataset:** `sme_fpi_panel.csv`
+            - **Main analytical dataset:** `sme_fpi_panel_v2.csv`
               - 386 rows x 28 columns
               - Each row represents one country in one half-year period, for example Germany in 2020 H1.
-              - This dataset is used to calculate SME_FPI, compare it with CISS, run PCA, and create financing-regime clusters.
+              - This dataset is used to calculate SME_FPI, compare it with CISS, run PCA, create financing-regime clusters, and feed the dashboard tabs.
 
             - **Big Data dataset:** ECB SAFE Q0B Pressingness Cube
               - 231,231 rows x 33 columns
               - This is a high-dimensional survey cube with country, period, firm size, sector, firm age, problem type, answer level, and weighted response values.
               - This dataset is used for the Big Data Visualization part and additional diagnostic analysis.
 
-            In short, the **386-row panel** is the compact analytical layer used to build the SME_FPI index, while the **231,231-row SAFE Q0B cube** is the larger multidimensional layer used for Big Data Visualization and supporting diagnostics.
+            In short, the **386-row panel** is the compact analytical layer used to build the SME_FPI index, while the **231,231-row SAFE Q0B cube** is the larger multidimensional layer used for Big Data Visualization and supporting diagnostics. The dashboard adds a third layer: reader-facing monitoring and audit views built from processed outputs.
             """
         ),
         code(DATA_OVERVIEW_CODE),
@@ -1511,6 +1706,20 @@ def main() -> None:
             """
         ),
         code(PLOTTING_CODE),
+        md(
+            """
+            ## 4b. Dashboard Companion Evidence Layer
+
+            The dashboard is the interactive version of this notebook. It keeps the same analytical claim, but changes the reading order so a first-time viewer can start with the answer and then drill down.
+
+            - **Reader route:** each tab answers one concrete question.
+            - **Current board:** latest country signals are shown as monitoring tiers, not raw model noise.
+            - **Forecast audit:** H+1 forecasts are benchmarked against simple and time-series baselines.
+            - **Data audit:** source roles are visible, so core index data and forecast-only predictors are not mixed together.
+            """
+        ),
+        code(DASHBOARD_TABLE_CODE),
+        code(DASHBOARD_CHART_CODE),
         md(
             """
             ## Model Robustness Check: Alternative SME_FPI Versions
@@ -1973,7 +2182,22 @@ def main() -> None:
         ),
         md(
             """
-            ## 24. Automated Profiling Report
+            ## 24. Notebook-to-Dashboard Handoff
+
+            Use the notebook and dashboard together like this:
+
+            - **Notebook first:** inspect formulas, data transformations, robustness checks, and chart rationale.
+            - **Dashboard second:** use the tabs to answer reader questions quickly and interactively.
+            - **Current Board:** start here when the audience asks which countries deserve attention now.
+            - **Forecast Check:** use this only as an early-warning validation layer, not as a deterministic prediction.
+            - **Data & Method / Data Preview:** use these tabs when a reader wants to audit sources, rows, model outputs, or limitations.
+
+            The dashboard can be launched from the repository root with `python dashboard/app.py`, then opened at `http://127.0.0.1:8050` unless a custom runner uses another port.
+            """
+        ),
+        md(
+            """
+            ## 25. Automated Profiling Report
 
             Finally, `ydata_profiling` creates an automated EDA report for the main analytical panel. The HTML report helps inspect variable types, missing values, distributions, and correlations.
             """
