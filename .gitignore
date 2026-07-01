@@ -6,6 +6,15 @@ __pycache__/
 notebooks/_*.py
 dashboard/*.log
 dashboard/dump.txt
+dashboard/BigData_SME_FPI_Portfolio.ipynb
+dashboard/requirements.txt
+dashboard/data/
+dashboard/figures/
+dashboard/reports/
+SME_FPI_dashboard_submission*.zip
+SME_FPI_dashboard_submission*/
+YoungjunSon_SME_FPI_dashboard*.zip
+dashboard/MDA_DataVis_SME_FPI_Final_Report.*
 
 # Local environments
 .venv/

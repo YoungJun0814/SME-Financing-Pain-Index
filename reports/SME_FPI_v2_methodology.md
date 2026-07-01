@@ -171,6 +171,22 @@ The within-country correlation is important because raw panel correlations can b
 - Monitoring Board tiers are heuristic analyst-attention labels, not automated policy classifications.
 - Additional real-economy outcome variables, such as bankruptcies or business-confidence data, remain recommended next extensions.
 
+## Presentation and Accessibility Choices
+
+The presentation version of the dashboard and portfolio charts uses a colorblind-safer communication rule: one or two highlighted countries are shown in blue/orange, while contextual countries are muted in gray. This avoids the common red-versus-green failure mode and makes the key comparison readable even when color is not the only available cue.
+
+The redesigned spaghetti-chart view highlights the latest borrower-market gap leaders instead of giving every country an equal visual weight. Direct labels are placed on the highlighted lines and on the CISS benchmark, so the reader does not need to decode a long legend. The title states the insight rather than only naming the chart type.
+
+Axes are handled by variable type. SME_FPI line charts are standardized z-score charts, so they do not need to start at zero; instead, the zero line is labeled conceptually as the sample-average reference. Bar charts, loss charts, and percentage/share charts should start from zero unless a deliberate exception is stated.
+
+## Uncertainty and Interval Rules
+
+The main SME_FPI time-series chart does not use a generic 95% confidence interval because SME_FPI is a constructed descriptive index, not a single regression coefficient or official survey estimate with published sampling errors. The shaded middle-50% band in the dashboard is therefore labeled as cross-country dispersion, not a confidence interval.
+
+Forecast views can show a rough 95% prediction interval because the forecast is an explicit predictive exercise. The dashboard interval is based on residual spread and recent rolling-origin RMSE, and it should be read as an early-warning uncertainty band rather than a calibrated production risk interval.
+
+Big Data cube bar charts may use error bars only if they are labeled as observed dispersion or bootstrap intervals across country-period cells. They should not be described as official survey-sampling confidence intervals unless official sampling-design standard errors are available.
+
 ## Current Project Status
 
 The project now satisfies the pre-dashboard methodological roadmap:

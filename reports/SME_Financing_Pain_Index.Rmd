@@ -188,6 +188,10 @@ knitr::include_graphics(file.path(base_dir, "figures", "08_general_audience_rede
 
 Design rationale: the left panel shows the original chart problem: too many lines compete for attention. The redesigned panel guides the reader with an aggregate trend, a few highlighted countries, direct labels, and annotated stress periods.
 
+Accessibility rationale: the redesigned version avoids a red-versus-green comparison. Context countries are muted in gray, the main highlighted countries use a colorblind-safer blue/orange pairing, and labels are placed directly on the lines so color is not the only decoding tool.
+
+Uncertainty note: the line chart does not add a generic 95% confidence interval because SME_FPI is a constructed descriptive index. When uncertainty is shown in the dashboard forecast tab, it is labeled as a rough prediction interval based on residual forecast error rather than as an official survey-sampling confidence interval.
+
 ## Big Data Cube Diagnostics
 
 ```{r fig9, echo=FALSE, out.width="100%"}

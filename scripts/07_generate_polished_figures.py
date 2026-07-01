@@ -19,11 +19,11 @@ START_PERIOD = "2015-S1"
 INK = "#1f2933"
 MUTED = "#64748b"
 GRID = "#e5e7eb"
-TEAL = "#147c78"
-RED = "#a33a2a"
 GOLD = "#d99a1e"
-BLUE = "#3b6ea8"
-PURPLE = "#7663a6"
+BLUE = "#0072B2"
+ORANGE = "#E69F00"
+PURPLE = "#CC79A7"
+VERMILION = "#D55E00"
 SLATE = "#475569"
 LIGHT_BG = "#fbfaf7"
 
@@ -109,8 +109,8 @@ def fig_timeseries(panel: pd.DataFrame) -> None:
     x = np.arange(len(periods))
 
     fig, ax = plt.subplots(figsize=(11.5, 5.4))
-    ax.plot(x, avg["SME_FPI_equal_z"], color=TEAL, linewidth=2.8, label="SME Financing Pain Index")
-    ax.plot(x, avg["CISS_z"], color=RED, linewidth=2.4, label="ECB New CISS")
+    ax.plot(x, avg["SME_FPI_equal_z"], color=BLUE, linewidth=2.8, label="SME Financing Pain Index")
+    ax.plot(x, avg["CISS_z"], color=SLATE, linewidth=2.4, label="ECB New CISS")
     ax.fill_between(x, avg["SME_FPI_equal_z"], avg["CISS_z"], color="#94a3b8", alpha=0.12)
 
     for period, label in [("2020-S1", "COVID shock"), ("2022-S1", "Rate tightening")]:
@@ -171,7 +171,7 @@ def fig_hidden_gap(panel: pd.DataFrame) -> None:
         .tail(1)
         .sort_values("Hidden_SME_Stress")
     )
-    colors = [TEAL if v < 0 else RED for v in latest["Hidden_SME_Stress"]]
+    colors = [MUTED if v < 0 else VERMILION for v in latest["Hidden_SME_Stress"]]
     fig, ax = plt.subplots(figsize=(9, 5.6))
     bars = ax.barh(latest["country_name"], latest["Hidden_SME_Stress"], color=colors, height=0.64)
     ax.axvline(0, color="#94a3b8", linewidth=1)
@@ -194,7 +194,7 @@ def fig_pca_loadings() -> None:
     loadings["label"] = loadings["component"].map(COMPONENT_LABELS)
     loadings = loadings.sort_values("PC1_loading")
     fig, ax = plt.subplots(figsize=(8.7, 5.2))
-    bars = ax.barh(loadings["label"], loadings["PC1_loading"], color=TEAL, height=0.62)
+    bars = ax.barh(loadings["label"], loadings["PC1_loading"], color=BLUE, height=0.62)
     for bar, value in zip(bars, loadings["PC1_loading"]):
         ax.text(value + 0.012, bar.get_y() + bar.get_height() / 2, f"{value:.2f}", va="center", fontsize=8, color=INK)
     ax.set_title("The index is mainly driven by access barriers and bank willingness")
@@ -268,7 +268,7 @@ def fig_clusters(panel: pd.DataFrame) -> None:
         "Low SME financing pain": "#4f9f7f",
         "Interest Rates Increased driven stress": GOLD,
         "Bank Loan Cost Too High driven stress": PURPLE,
-        "Broad SME financing pain": RED,
+        "Broad SME financing pain": VERMILION,
     }
     fig, ax = plt.subplots(figsize=(9.4, 6.0))
     for name in names:
@@ -327,9 +327,10 @@ def fig_redesign(panel: pd.DataFrame) -> None:
     lookup = {period: i for i, period in enumerate(periods)}
     p["x"] = p["TIME_PERIOD"].map(lookup)
     avg = p.groupby(["TIME_PERIOD", "x"], as_index=False)["SME_FPI_equal_z"].mean()
+    ciss = p.groupby(["TIME_PERIOD", "x"], as_index=False)["CISS_z"].mean()
     latest_period = periods[-1]
-    latest = p[p["TIME_PERIOD"] == latest_period].sort_values("SME_FPI_equal_z", ascending=False)
-    highlight = latest.head(3)["REF_AREA"].tolist()
+    latest = p[p["TIME_PERIOD"] == latest_period].sort_values("Relative_Gap_equal", ascending=False)
+    highlight = latest.head(2)["REF_AREA"].tolist()
 
     fig, axes = plt.subplots(1, 2, figsize=(14.5, 5.8), sharey=True, gridspec_kw={"wspace": 0.08})
 
@@ -338,34 +339,53 @@ def fig_redesign(panel: pd.DataFrame) -> None:
         ax.plot(sub["x"], sub["SME_FPI_equal_z"], color="#94a3b8", alpha=0.55, linewidth=1)
     ax.set_title("Before: too many equal-weight lines")
     ax.set_ylabel("SME_FPI, standardized")
-    ax.set_xticks(np.arange(len(periods))[::3])
-    ax.set_xticklabels([periods[i].replace("-S", " H") for i in np.arange(len(periods))[::3]], rotation=45, ha="right")
+    ax.set_xticks(np.arange(len(periods))[::4])
+    ax.set_xticklabels([periods[i].replace("-S", " H") for i in np.arange(len(periods))[::4]], rotation=42, ha="right", fontsize=8.5)
     clean_axes(ax)
 
     ax = axes[1]
-    ax.plot(avg["x"], avg["SME_FPI_equal_z"], color=INK, linewidth=2.4, label="Sample average")
-    colors = [GOLD, TEAL, RED]
-    label_offsets = [0.10, 0.00, -0.10]
+    for _, sub in p.groupby("REF_AREA"):
+        ax.plot(sub["x"], sub["SME_FPI_equal_z"], color="#cbd5e1", alpha=0.52, linewidth=1)
+    ax.plot(avg["x"], avg["SME_FPI_equal_z"], color=SLATE, linewidth=2.3)
+    ax.plot(ciss["x"], ciss["CISS_z"], color=INK, linestyle=(0, (5, 4)), linewidth=2.2)
+    colors = [BLUE, ORANGE]
+    label_offsets = [0.10, -0.10]
     for color, code, yoff in zip(colors, highlight, label_offsets):
         sub = p[p["REF_AREA"] == code].sort_values("x")
         name = sub["country_name"].iloc[0]
-        ax.plot(sub["x"], sub["SME_FPI_equal_z"], color=color, linewidth=2.5)
+        ax.plot(sub["x"], sub["SME_FPI_equal_z"], color=color, linewidth=3.0, marker="o", markersize=3.5)
         last = sub.iloc[-1]
-        ax.text(last["x"] + 0.25, last["SME_FPI_equal_z"] + yoff, name, color=color, fontsize=9, va="center")
-    for period, label in [("2020-S1", "COVID"), ("2022-S1", "rates")]:
+        ax.text(last["x"] + 0.35, last["SME_FPI_equal_z"] + yoff, name, color=color, fontsize=9.5, va="center", weight="bold")
+    avg_last = avg.iloc[-1]
+    ciss_last = ciss.iloc[-1]
+    ax.text(avg_last["x"] + 0.35, avg_last["SME_FPI_equal_z"], "median", color=SLATE, fontsize=9, va="center")
+    ax.text(ciss_last["x"] + 0.35, ciss_last["CISS_z"] - 0.06, "CISS", color=INK, fontsize=9, va="center")
+    for period, label in [("2020-S1", "COVID"), ("2022-S1", "rate shock")]:
         if period in lookup:
             xpos = lookup[period]
             ax.axvspan(xpos - 0.45, xpos + 1.45, color="#f1f5f9", zorder=0)
             ax.text(xpos + 0.05, ax.get_ylim()[1] * 0.84, label, fontsize=8, color=SLATE)
     ax.axhline(0, color="#94a3b8", linewidth=1)
     ax.set_xlim(-0.3, len(periods) + 2.2)
-    ax.set_title("After: highlight the comparison that matters")
-    ax.set_xticks(np.arange(len(periods))[::3])
-    ax.set_xticklabels([periods[i].replace("-S", " H") for i in np.arange(len(periods))[::3]], rotation=45, ha="right")
+    ax.set_title("After: key lines highlighted, all others muted")
+    if highlight:
+        top = p[(p["REF_AREA"] == highlight[0]) & (p["TIME_PERIOD"] == latest_period)].iloc[0]
+        ax.annotate(
+            "CISS is below average,\nbut borrower pain remains visible",
+            xy=(top["x"], top["SME_FPI_equal_z"]),
+            xytext=(top["x"] - 7.0, top["SME_FPI_equal_z"] + 0.85),
+            arrowprops={"arrowstyle": "->", "color": SLATE, "lw": 1.0},
+            bbox={"boxstyle": "round,pad=0.35", "fc": "white", "ec": "#d1d5db", "alpha": 0.96},
+            fontsize=8.5,
+            color=INK,
+        )
+    ax.set_xticks(np.arange(len(periods))[::4])
+    ax.set_xticklabels([periods[i].replace("-S", " H") for i in np.arange(len(periods))[::4]], rotation=42, ha="right", fontsize=8.5)
     clean_axes(ax)
-    ax.legend(frameon=False, loc="upper left")
 
-    fig.suptitle("Redesigning a spaghetti chart for a general audience", fontsize=15, weight="bold", color=INK, y=1.02)
+    fig.suptitle("Greece and Finland remain visible after market stress eased", fontsize=14, weight="bold", color=INK, y=0.98)
+    axes[0].set_ylabel("SME_FPI z-score (0 = sample average)")
+    fig.subplots_adjust(top=0.82, bottom=0.22)
     add_source_note(fig)
     savefig("08_general_audience_redesign.png")
 
@@ -430,7 +450,7 @@ def fig_marginal_breakdowns() -> None:
 
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 5.2), sharey=True)
     for ax, data, xcol, color, title in [
-        (axes[0], size_avg, "firm_size_label", TEAL, "By firm size"),
+        (axes[0], size_avg, "firm_size_label", BLUE, "By firm size"),
         (axes[1], sector_avg, "sector_label", GOLD, "By sector"),
     ]:
         bars = ax.bar(data[xcol].astype(str), data["severity_score_1_10"], color=color, width=0.62)
@@ -471,7 +491,7 @@ def fig_big_cube_trend() -> None:
     fig, ax = plt.subplots(figsize=(11.2, 5.0))
     for _, sub in trend.groupby("country_name"):
         ax.plot(sub["x"], sub["severity_score_1_10"], color="#cbd5e1", alpha=0.75, linewidth=1)
-    ax.plot(avg["x"], avg["severity_score_1_10"], color=TEAL, linewidth=2.8, label="Country average")
+    ax.plot(avg["x"], avg["severity_score_1_10"], color=BLUE, linewidth=2.8, label="Country average")
     ax.set_xticks(np.arange(len(periods))[::2])
     ax.set_xticklabels([periods[i].replace("-S", " H") for i in np.arange(len(periods))[::2]], rotation=0)
     ax.set_ylabel("Severity score, 1-10")

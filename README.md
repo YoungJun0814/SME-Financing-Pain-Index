@@ -2,6 +2,12 @@
 
 A borrower-side SME financing stress index for Europe, built from ECB SAFE survey signals and compared with the ECB New CISS market-stress benchmark. The project includes a reproducible notebook, processed datasets, validation outputs, forecasting diagnostics, and an interactive Dash dashboard.
 
+## Dashboard Preview
+
+![SME-FPI dashboard start screen](figures/dashboard_start_here.png)
+
+The dashboard opens with a current monitoring board, a guided tab structure, and controls for changing countries, index versions, and period ranges.
+
 ## Quick Start
 
 Run these commands from the repository root:
