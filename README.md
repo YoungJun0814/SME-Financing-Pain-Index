@@ -1,5 +1,8 @@
 # SME Financing Pain Index
 
+[![Tests](https://github.com/YoungJun0814/SME-Financing-Pain-Index/actions/workflows/tests.yml/badge.svg)](https://github.com/YoungJun0814/SME-Financing-Pain-Index/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 A borrower-side SME financing stress index for Europe, built from ECB SAFE survey signals and compared with the ECB New CISS market-stress benchmark. The project includes a reproducible notebook, processed datasets, validation outputs, forecasting diagnostics, and an interactive Dash dashboard.
 
 ## Dashboard Preview
@@ -45,6 +48,13 @@ To re-execute the notebook in place:
 
 ```powershell
 python -m jupyter nbconvert --to notebook --execute notebooks/BigData_SME_FPI_Portfolio.ipynb --inplace --ExecutePreprocessor.timeout=1200
+```
+
+Run the focused regression suite with:
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest -q
 ```
 
 ## What To Read First
@@ -127,6 +137,8 @@ Can a borrower-side SME Financing Pain Index reveal European SME credit stress t
 - Eurostat short-term business statistics: business bankruptcy declarations index and business registrations index.
 - World Bank macro indicators: GDP growth, unemployment, CPI inflation, and domestic credit to the private sector.
 
+See [DATA_ATTRIBUTION.md](DATA_ATTRIBUTION.md) for provider links and reuse notes.
+
 ## Large Data Note
 
 The raw SAFE Q0B cube is about 131 MB and is intentionally excluded from GitHub:
@@ -178,3 +190,7 @@ python scripts/04_create_bigdata_notebook.py
 - If the dashboard opens but styles look stale, hard-refresh the browser tab.
 - If port `8050` is busy, run `python dashboard/run_8051.py` and open `http://127.0.0.1:8051`.
 - If the big raw SAFE cube is missing, regenerate it with `python scripts/06_build_big_cube.py`; the dashboard normally uses processed files under `data/processed/`.
+
+## License
+
+Project code is released under the [MIT License](LICENSE). Source and derived data remain subject to their original providers' terms; see [DATA_ATTRIBUTION.md](DATA_ATTRIBUTION.md).
