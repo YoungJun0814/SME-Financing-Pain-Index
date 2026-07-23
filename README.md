@@ -8,7 +8,7 @@
 
 A borrower-side SME financing stress index for Europe, built from ECB SAFE survey signals and compared with the ECB New CISS market-stress benchmark. The project combines index construction, robustness testing, Big Data visualization, rolling-origin validation, and an interactive monitoring dashboard.
 
-**Project outputs:** [dashboard guide](dashboard/README.md) | [executed notebook](notebooks/BigData_SME_FPI_Portfolio.ipynb) | [methodology](reports/SME_FPI_v2_methodology.md) | [technical review](reports/technical_theoretical_review.md) | [data attribution](DATA_ATTRIBUTION.md)
+**Project outputs:** [dashboard and container guide](dashboard/README.md) | [executed notebook](notebooks/BigData_SME_FPI_Portfolio.ipynb) | [methodology](reports/SME_FPI_v2_methodology.md) | [technical review](reports/technical_theoretical_review.md) | [data attribution](DATA_ATTRIBUTION.md)
 
 ![Hidden SME financing stress in Europe](figures/00_signature_sme_fpi_story.png)
 
@@ -148,6 +148,7 @@ See [DATA_ATTRIBUTION.md](DATA_ATTRIBUTION.md) for provider links and reuse note
 |-- reports/                   # Methodology, dictionary, review, and SQL artifacts
 |-- scripts/                   # Reproducible data and figure pipeline
 |-- tests/                     # Dashboard, source, and generated-view smoke tests
+|-- Dockerfile                 # Reproducible non-root Gunicorn deployment
 |-- requirements.txt
 `-- README.md
 ```
@@ -181,6 +182,15 @@ python dashboard/app.py
 ```
 
 Open `http://127.0.0.1:8050`. If that port is busy, run `python dashboard/run_8051.py` and open `http://127.0.0.1:8051`.
+
+For a containerized run:
+
+```bash
+docker build -t sme-fpi-dashboard .
+docker run --rm -p 8050:8050 sme-fpi-dashboard
+```
+
+See the [dashboard guide](dashboard/README.md) for environment-variable and alternate-port configuration.
 
 Open the notebook with:
 

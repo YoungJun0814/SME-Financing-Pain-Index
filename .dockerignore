@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+*.log
+*.zip
+.ipynb_checkpoints
+.jupyter_runtime
+data/raw
+figures
+notebooks
+reports
+tests

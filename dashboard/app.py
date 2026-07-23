@@ -16,6 +16,11 @@ from sklearn.preprocessing import StandardScaler
 from statsmodels.tools.sm_exceptions import ConvergenceWarning as StatsmodelsConvergenceWarning
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+try:
+    from dashboard.runtime import load_runtime_settings
+except ModuleNotFoundError:
+    from runtime import load_runtime_settings
+
 
 DASHBOARD_DIR = Path(__file__).resolve().parent
 PROJECT_DIR = DASHBOARD_DIR.parent
@@ -8207,4 +8212,5 @@ def update_dashboard(countries, metric_col, period_range, pca_3d_z, problem, fir
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=8050, debug=False)
+    runtime = load_runtime_settings()
+    app.run(host=runtime.host, port=runtime.port, debug=runtime.debug)
